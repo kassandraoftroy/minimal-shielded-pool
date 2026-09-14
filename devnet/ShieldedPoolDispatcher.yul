@@ -178,10 +178,10 @@ object "ShieldedPoolDispatcher" {
                 // Frame 0: proof-carrying VERIFY by the pool.
                 if iszero(eq(frameParam(0, 0x00), address())) { fail(errShape()) }
                 if iszero(eq(frameParam(0, 0x01), 320000)) { fail(errShape()) }
-                // The proof frame writes nothing, so it declares no state budget.
-                // Any nonzero value here would be `max_gas` the pool pays for and
-                // cannot use.
-                if frameParam(0, 0x09) { fail(errShape()) }
+                // This profile pins EIP-8037 CPSB to 1530. EIP-8250 charges
+                // 64 * CPSB when payment approval creates a keyed nonce slot.
+                // Every spend creates two slots, so the total is 195840.
+                if iszero(eq(frameParam(0, 0x09), 195840)) { fail(errShape()) }
                 if iszero(eq(frameParam(0, 0x02), 1)) { fail(errShape()) }
                 if iszero(eq(frameParam(0, 0x03), 3)) { fail(errShape()) }
                 if iszero(eq(frameParam(0, 0x04), 256)) { fail(errShape()) }

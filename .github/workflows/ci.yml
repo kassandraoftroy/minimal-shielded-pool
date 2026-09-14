@@ -59,7 +59,8 @@ jobs:
       - name: Check Python and frame-vector code
         run: |
           python -m py_compile \
-            devnet/dispatcher.py devnet/frametx.py devnet/pool_frametx.py \
+            devnet/dispatcher.py devnet/frametx.py devnet/gas_profile.py \
+            devnet/pool_frametx.py \
             devnet/test_pool_envelope_binding.py \
             wallet/gen_nonce_race.py wallet/gen_smoke.py wallet/wallet.py \
             reference/gen_poseidon_sol.py reference/poseidon_bn254.py \
@@ -69,6 +70,9 @@ jobs:
           python devnet/test_pool_envelope_binding.py
           python tooling/check_gas_profile.py
           python tooling/check_activation.py activation_manifest.testbed.json --allow-testbed
+          python tooling/check_activation.py \
+            devnet/vectors/2026-09-01-hegota-final-profile/activation_manifest.testbed.json \
+            --allow-testbed
           python wallet/wallet.py
           python reference/poseidon_bn254.py
 

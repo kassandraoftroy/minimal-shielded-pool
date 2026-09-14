@@ -34,18 +34,15 @@ import urllib.request
 from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
+from gas_profile import (
+    SETTLE_FRAME_GAS,
+    SETTLE_FRAME_STATE_GAS,
+    VERIFY_FRAME_GAS,
+    VERIFY_FRAME_STATE_GAS,
+)
 
 
 SPEND_TUPLE = "(bytes32,uint64,uint64,bytes32,bytes32,bytes32,bytes32,bytes32,uint256,uint256,address,address)"
-VERIFY_FRAME_GAS = 320_000
-# The pre-relaunch dialect declared one budget per frame, so the settlement's state
-# growth had to fit inside its execution budget. The spec declares the two separately
-# (tooling/check_gas_profile.py), which
-# is why the execution figure drops rather than the work getting cheaper.
-SETTLE_FRAME_GAS = 1_400_000
-# Only meaningful on the spec profile. The proof frame writes nothing; settlement grows at most five slots.
-VERIFY_FRAME_STATE_GAS = 0
-SETTLE_FRAME_STATE_GAS = 550_000
 
 
 def _limits(execution, state):

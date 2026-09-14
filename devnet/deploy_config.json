@@ -9,11 +9,11 @@
  "domain": "0x1870349e5a181f71fd09abb8e7bb5431e806f0fb16937844ef9603a884ef8e56",
  "_slot_transfer": "1833",
  "chainId": 8141,
- "profile": "ethrex-v23-spec-2026-08-31",
+ "profile": "eip8250-state-gas-pre-8272-frame",
  "verifyGas": 320000,
  "settleGas": 1400000,
  "testbedProvingKey": true,
  "settleStateGas": 550000,
- "verifyStateGas": 0,
+ "verifyStateGas": 195840,
  "_slot_withdraw": "1842"
 }

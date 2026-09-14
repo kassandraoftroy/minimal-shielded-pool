@@ -63,22 +63,30 @@ deployment paths.
 
 ## Compatibility target
 
-The active encoder and immutable dispatcher target EIP-8141, EIP-8250 and
-EIP-8272 as currently specified (ethereum/EIPs `7d1c8bfb94` / `e5cf246ff1` /
-`0231fb05f5`): a nested-fee envelope, per-frame `limits = [execution, state]`,
-and the split gas schedule recorded in the testbed activation manifest. The
+The active encoder and immutable dispatcher follow current EIP-8141 and
+EIP-8250 through merged PR 12279 (`94f5a3e3c1`). They use EIP-8141's nested
+`fees` field and separate execution and state gas limits for each frame. Every
+private spend gives its proof frame `195,840` state gas to create its two
+nullifier keys.
+
+This profile is not yet current for EIP-8272. It still uses the older recent
+root field. A separate change will replace that field with the recent root
+verification frame introduced by PRs 12281 and 12302. The gas schedule is
+recorded in the testbed activation manifest.
+
+The current chain 8141 testnet, launched on September 3, supports this
+EIP-8141 wire format but still uses EIP-8250 before PR 12279. It accepts the
+`195,840` state limit, does not use it, and refunds it. Exact EIP-8250 behavior
+can only be tested once a node implements PR 12279. The
 dialect deployed on the pre-relaunch chain-8141 testnet (11-field envelope, one
 gas limit per frame) is archived byte-exact under
 `devnet/vectors/2026-09-01-hegota-final-profile/`, the auditable record of that
 deployment.
 
-The Ethereum EIPs remain drafts. The
-[current EIP-8141 draft](https://eips.ethereum.org/EIPS/eip-8141) has since
-changed to a nested `fees` field and separate execution and state gas limits.
-The existing deployment and its signed transactions are therefore not
-compatible with that newer wire format. Supporting it requires a separately
-versioned encoder, dispatcher, gas profile, and deployment. The tested Hegotá
-path stays frozen until ethrex activates such a profile.
+The Ethereum EIPs remain drafts, so each supported combination is a separate
+versioned profile. The archived pre-relaunch profile and the active profile are
+not wire compatible. The future EIP-8272 update will likewise need its own
+encoder, dispatcher, gas profile, and deployment.
 
 ## Test
 
@@ -116,15 +124,15 @@ reviewed artifact set rather than routine dependency maintenance.
 | Dependency | Status |
 |---|---|
 | Ethrex v23 Hegotá FrameTx ABI | Implemented and tested live |
-| Current EIP-8141 wire format | Not implemented: it differs from the deployed ethrex testnet format |
-| EIP-8141 published 100k public-mempool budget | Not compatible: the Hegotá profile declares 320k plus 2.8k signature gas |
-| EIP-8250 keyed nonces | Implemented in the Hegotá profile: exactly two sorted proof nullifiers, sequence zero |
-| EIP-8272 recent roots | Implemented in the Hegotá profile: per-epoch source, exact source/slot/root binding, permissionless publication |
+| Current EIP-8141 wire format | Implemented by the active encoder and supported by the current chain 8141 testnet |
+| EIP-8141 published 100k public mempool budget | Not compatible: the proof frame and signature need 322.8k execution gas |
+| EIP-8250 keyed nonces | The pool follows PR 12279. The current testnet uses the older rule, so it accepts and refunds the new state limit without charging it |
+| EIP-8272 recent roots | Not current yet: the profile still uses the older envelope field; a separate PR will move the root into its required verification frame |
 | EIP-7843 slot number | Implemented: wallet requires the RPC `slotNumber` field |
 | EIP-8369 | The open draft does not set a final per-transaction budget; the Hegotá testnet currently admits this 322.8k profile |
-| Current ethrex privacy testnet | ethrex v23 was live on chain 8141 on 2026-08-14; the 320k/2M profile passed shield, transfer, withdrawal, claim, and replay rejection |
+| Current ethrex privacy testnet | The chain relaunched on September 3 with the current EIP-8141 format and the older EIP-8250 gas rule. It can test compatibility, but not the new state charge |
 
-The current testnet evidence is in
+Earlier testnet evidence is in
 [`devnet/vectors/2026-08-14-tight-gas-profile.md`](devnet/vectors/2026-08-14-tight-gas-profile.md).
 The published EIP-8141 100k policy remains a portability blocker. The pool must
 use a network profile that explicitly admits its 322.8k validation budget. The

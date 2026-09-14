@@ -10,8 +10,10 @@ from eth_keys import keys
 from frametx import Frame, FrameSig, FrameTx, rlp_bytes, rlp_int, rlp_list
 from pool_frametx import (
     SETTLE_FRAME_GAS,
+    SETTLE_FRAME_STATE_GAS,
     SPEND_TUPLE,
     VERIFY_FRAME_GAS,
+    VERIFY_FRAME_STATE_GAS,
     cast_calldata,
     proof_bytes,
     spend_args,
@@ -42,8 +44,10 @@ def build():
         nonce_seq=0,
         sender=pool,
         frames=[
-            Frame(1, 3, pool, VERIFY_FRAME_GAS, 0, proof_bytes(entry)),
-            Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle),
+            Frame(1, 3, pool, VERIFY_FRAME_GAS, 0, proof_bytes(entry),
+                  state_limit=VERIFY_FRAME_STATE_GAS),
+            Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
+                  state_limit=SETTLE_FRAME_STATE_GAS),
         ],
         signatures=[FrameSig(FrameSig.SECP256K1, authorizer, b"", b"")],
         max_priority_fee=1,
@@ -76,6 +80,8 @@ def main():
     add("verify_flags", lambda x: setattr(x.frames[0], "flags", 2))
     add("verify_target", lambda x: setattr(x.frames[0], "target", x.frames[0].target ^ 1))
     add("verify_gas", lambda x: setattr(x.frames[0], "gas_limit", VERIFY_FRAME_GAS - 1))
+    add("verify_state_gas", lambda x: setattr(
+        x.frames[0], "state_limit", VERIFY_FRAME_STATE_GAS - 1))
     add("verify_value", lambda x: setattr(x.frames[0], "value", 1))
     for word in range(8):
         add(f"proof_word_{word}", lambda x, w=word: setattr(
@@ -84,6 +90,8 @@ def main():
     add("settle_mode", lambda x: setattr(x.frames[1], "mode", 1))
     add("settle_target", lambda x: setattr(x.frames[1], "target", x.frames[1].target ^ 1))
     add("settle_gas", lambda x: setattr(x.frames[1], "gas_limit", SETTLE_FRAME_GAS - 1))
+    add("settle_state_gas", lambda x: setattr(
+        x.frames[1], "state_limit", SETTLE_FRAME_STATE_GAS - 1))
     for word in range(12):
         add(f"settle_word_{word}", lambda x, w=word: setattr(
             x.frames[1], "data", x.frames[1].data[:4 + w * 32] +

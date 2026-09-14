@@ -1,0 +1,15 @@
+"""Gas limits shared by the pool builder and its checks.
+
+This profile includes EIP-8250 PR 12279 but still uses the older EIP-8272
+recent root field. The EIP-8272 frame change will use a separate profile.
+"""
+
+VERIFY_FRAME_GAS = 320_000
+SETTLE_FRAME_GAS = 1_400_000
+SETTLE_FRAME_STATE_GAS = 550_000
+
+STATE_BYTES_PER_STORAGE_SET = 64
+CPSB = 1_530
+SPEND_NONCE_KEY_COUNT = 2
+KEYED_NONCE_FIRST_USE_STATE_GAS = STATE_BYTES_PER_STORAGE_SET * CPSB
+VERIFY_FRAME_STATE_GAS = SPEND_NONCE_KEY_COUNT * KEYED_NONCE_FIRST_USE_STATE_GAS
