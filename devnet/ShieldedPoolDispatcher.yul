@@ -232,7 +232,7 @@ object "ShieldedPoolDispatcher" {
                 if frameParam(4, 0x03) { fail(errShape()) }
                 if lt(frameParam(4, 0x04), 4) { fail(errShape()) }
                 if frameParam(4, 0x08) { fail(errShape()) }
-                if iszero(eq(shr(224, frameDataLoad(4, 0)), 0x34fcd5be)) { fail(errShape()) }
+                if iszero(eq(shr(224, frameDataLoad(4, 0)), 0x5885bbcf)) { fail(errShape()) }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.
                 let nf1 := frameDataLoad(2, 132)

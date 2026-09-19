@@ -31,8 +31,10 @@ Each spend has exactly five frames:
 4. `SENDER(pool, ensureAndClaim(factory, owner, salt, recipient))`. `factory
    == 0` skips CREATE2 (vanilla EOA). `recipient == 0` is a no-op so internal
    transfers share this grammar.
-5. `SENDER(recipient, executeBatch(calls))`. Empty `calls` is a no-op against
-   an EOA; a `FrameAccount` accepts the pool as `msg.sender`.
+5. `SENDER(recipient, executeBatch(calls, signature))`. Empty `calls` is a
+   no-op against an EOA. A `FrameAccount` ignores pool privilege: the owner
+   must ECDSA-sign the batch, so a later pool spend cannot drive someone
+   else's account.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including

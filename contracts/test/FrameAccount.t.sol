@@ -13,6 +13,7 @@ interface Vm {
     function startPrank(address) external;
     function stopPrank() external;
     function store(address, bytes32, bytes32) external;
+    function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
 }
 
 contract MockPoseidonT3 {
@@ -64,10 +65,20 @@ contract Target {
 contract FrameAccountTest {
     Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
+    function _sig(uint256 pk, FrameAccount account, FrameAccount.Call[] memory calls)
+        internal
+        view
+        returns (bytes memory)
+    {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, account.executeDigest(calls));
+        return abi.encodePacked(r, s, v);
+    }
+
     function testFactoryCreateAndExecute() public {
         address pool = address(0xBEEF);
         FrameAccountFactory factory = new FrameAccountFactory(pool);
-        address owner = vm.addr(1);
+        uint256 ownerPk = 1;
+        address owner = vm.addr(ownerPk);
         bytes32 salt = bytes32(uint256(7));
         address predicted = factory.getAddress(owner, salt);
         address created = factory.createAccount(owner, salt);
@@ -77,17 +88,42 @@ contract FrameAccountTest {
         Target t = new Target();
         FrameAccount.Call[] memory calls = new FrameAccount.Call[](1);
         calls[0] = FrameAccount.Call({target: address(t), value: 0, data: abi.encodeCall(Target.ping, ())});
+        FrameAccount account = FrameAccount(payable(created));
 
         vm.prank(owner);
-        FrameAccount(payable(created)).executeBatch(calls);
+        account.executeBatch(calls, "");
         require(t.hits() == 1, "owner");
+        require(account.nonce() == 1, "nonce");
+
+        bytes memory sig = _sig(ownerPk, account, calls);
+        vm.prank(pool);
+        account.executeBatch(calls, sig);
+        require(t.hits() == 2, "pool+sig");
+        require(account.nonce() == 2, "nonce2");
 
         vm.prank(pool);
-        FrameAccount(payable(created)).executeBatch(calls);
-        require(t.hits() == 2, "pool");
-
         vm.expectRevert(FrameAccount.NotAuthorized.selector);
-        FrameAccount(payable(created)).executeBatch(calls);
+        account.executeBatch(calls, sig);
+
+        vm.expectRevert(FrameAccount.BadSignature.selector);
+        account.executeBatch(calls, "");
+    }
+
+    function testPoolCannotExecuteWithoutOwnerSignature() public {
+        address pool = address(0xBEEF);
+        FrameAccountFactory factory = new FrameAccountFactory(pool);
+        address owner = vm.addr(1);
+        address created = factory.createAccount(owner, bytes32(uint256(1)));
+        FrameAccount.Call[] memory calls = new FrameAccount.Call[](0);
+
+        vm.prank(pool);
+        vm.expectRevert(FrameAccount.BadSignature.selector);
+        FrameAccount(payable(created)).executeBatch(calls, "");
+
+        bytes memory other = _sig(2, FrameAccount(payable(created)), calls);
+        vm.prank(pool);
+        vm.expectRevert(FrameAccount.NotAuthorized.selector);
+        FrameAccount(payable(created)).executeBatch(calls, other);
     }
 
     function testEnsureAndClaimZeroRecipientIsNoop() public {

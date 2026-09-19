@@ -33,11 +33,11 @@
     "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
     "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
     "contracts/src/ShieldedPoolLogic.sol": "ddab27930aaaaaf5ac34506ca9454b0fcacaf29bc1c12eb8110b5bb081a9fe09",
-    "devnet/ShieldedPoolDispatcher.yul": "a92c24cbd8411f228fd77be3513239eee2510c7ccd7c4791e1204411817deb96",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "09cb6c34fff22e7910ec3c3ee60a24af535803eb684c570f42df2a07a991d1ba",
+    "devnet/ShieldedPoolDispatcher.yul": "db2c866bf85978c3c941a73b413347f927898aea3dabeb19c0bb70c8cf823c17",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "ebf9b587ee0bf4c82acc1bc5ac0dc66e68605cd021831f15ce4489f2859ed4f9",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
     "devnet/gas_profile.py": "76bb258f967557f9adfcd675ded19f1e97f86fd3258c4f348bc61ea368ee5a04",
-    "devnet/pool_frametx.py": "3dbb926bdfda9dc9151db44a7a8302f4f7146bd85e436bafa8614e82e3e648af",
+    "devnet/pool_frametx.py": "e137c95aa2ebd8febd43e76320bac36d18c43bfbedf96241a5aca21c125c896c",
     "tooling/check_gas_profile.py": "244c76ea0024872c4490c051b5105f24463239c908a6394371e7f8175f3803fb"
   }
 }

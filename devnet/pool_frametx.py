@@ -9,7 +9,7 @@ Spends use one exact grammar:
   VERIFY(0x…8272, tuple) -> VERIFY(pool, proof, execution+payment)
     -> SENDER(pool, settle(Spend))
     -> SENDER(pool, ensureAndClaim(factory, owner, salt, recipient))
-    -> SENDER(recipient, executeBatch(calls))
+    -> SENDER(recipient, executeBatch(calls, owner_signature))
 
 Internal transfers pass recipient=0, so ensureAndClaim is a no-op and
 executeBatch targets the zero address. Withdrawals claim then optionally
@@ -195,9 +195,10 @@ def recent_root_tuple(url, cfg, e):
     return source_id + slot.to_bytes(8, "big") + root
 
 
-def spend_tail_frames(pool, recipient, factory=0, owner=0, salt=None, calls=None):
+def spend_tail_frames(pool, recipient, factory=0, owner=0, salt=None, calls=None, signature=None):
     """Frames 3 and 4 of the five-frame spend. `factory == 0` skips CREATE2;
-    empty `calls` is a no-op `executeBatch([])` (EOA or unused account)."""
+    empty `calls` is a no-op. `signature` is the owner's ECDSA over the batch
+    (required on a FrameAccount; ignored by an EOA with no code)."""
     salt = salt if salt is not None else bytes(32)
     if isinstance(salt, int):
         salt = salt.to_bytes(32, "big")
@@ -205,10 +206,11 @@ def spend_tail_frames(pool, recipient, factory=0, owner=0, salt=None, calls=None
         "ensureAndClaim(address,address,bytes32,address)",
         hex(factory), hex(owner), "0x" + salt.hex(), hex(recipient),
     )
+    sig = "0x" if not signature else signature
     if not calls:
-        execute = cast_calldata("executeBatch((address,uint256,bytes)[])", "[]")
+        execute = cast_calldata("executeBatch((address,uint256,bytes)[],bytes)", "[]", sig)
     else:
-        execute = cast_calldata("executeBatch((address,uint256,bytes)[])", calls)
+        execute = cast_calldata("executeBatch((address,uint256,bytes)[],bytes)", calls, sig)
     return [
         Frame(mode=2, flags=0, target=pool, value=0, data=ensure,
               **_limits(CLAIM_FRAME_GAS, CLAIM_FRAME_STATE_GAS)),
@@ -221,7 +223,7 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
                    recent_root=None, dry_run=False, sender_override=None,
                    max_fee_override=None, max_priority_override=None,
                    settle_gas_override=None, save_raw=None, frame0_data=b"",
-                   recipient=0, factory=0, owner=0, salt=None, calls=None):
+                   recipient=0, factory=0, owner=0, salt=None, calls=None, signature=None):
     signer = int.from_bytes(pk.public_key.to_canonical_address(), "big")
     sender = sender_override if sender_override is not None else signer
     chain_id = int(rpc(url, "eth_chainId", []), 16)
@@ -260,7 +262,7 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         frames.append(Frame(mode=2, flags=0, target=pool, value=value, data=calldata,
                             **_limits(sender_gas, SETTLE_FRAME_STATE_GAS)))
         if proof_verify:
-            frames.extend(spend_tail_frames(pool, recipient, factory, owner, salt, calls))
+            frames.extend(spend_tail_frames(pool, recipient, factory, owner, salt, calls, signature))
         tx = FrameTx(
             chain_id=chain_id, nonce_keys=nonce_keys, nonce_seq=nonce_seq, sender=sender,
             frames=frames,
