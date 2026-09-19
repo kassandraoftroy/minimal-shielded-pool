@@ -36,6 +36,8 @@ from gas_profile import (  # noqa: E402
     SPEND_NONCE_KEY_COUNT,
     VERIFY_FRAME_GAS,
     VERIFY_FRAME_STATE_GAS,
+    WILD_FRAME_GAS,
+    WILD_FRAME_STATE_GAS,
 )
 
 PRE_PR_12279_MAX_OBSERVED_VERIFY_EXECUTION_GAS = 294_401
@@ -124,6 +126,8 @@ def main():
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x01), {CLAIM_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x09), {CLAIM_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(4, 0x01), {WILD_FRAME_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(4, 0x09), {WILD_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"

@@ -20,7 +20,7 @@ The circuit enforces membership for positive inputs, value conservation,
 outputs, two position-specific zero-value sinks, a nonzero `uint160`
 authorizer, and the transfer/withdrawal recipient shape.
 
-Each spend has exactly four frames:
+Each spend has exactly five frames:
 
 1. `VERIFY(0x…8272, tuple)`, EIP-8272's canonical recent-root verifier. The
    protocol runs `RECENT_ROOT_CODE` over the 72-byte tuple before any pool code
@@ -31,6 +31,15 @@ Each spend has exactly four frames:
 4. `SENDER(pool, claimWithdrawal(recipient))`. `recipient == 0` is a no-op so
    internal transfers share this grammar. A nonzero recipient is paid in the
    same transaction. Standalone `claimWithdrawal` remains for leftover credits.
+5. `SENDER(target, data)` with `value` pinned to 0. Empty `target` / empty
+   `data` is a no-op (withdraw-only). Otherwise this is one caller-chosen
+   call, run as the pool. A revert here rolls back settle and claim and
+   burns the note: payment approval already consumed the nullifier keys.
+   An external hook may catch its own inner-call failures so claim and
+   CREATE2 still land.
+   Hooks must not treat `msg.sender == pool` as pool-wide authority, and
+   must not be an undeployed address (a `CALL` to empty code succeeds and
+   does nothing).
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including
@@ -48,9 +57,9 @@ timestamp reconstruction is rejected.
 Settlement never publishes a root or calls a recipient. It rolls to a fresh
 Merkle epoch before inserting outputs when capacity is insufficient. The two
 zero sinks consume no capacity, so an exit remains possible at a full tree.
-Withdrawals are pull credits claimed by the fourth frame. Root publication is
-a separate permissionless call that reads only the active or finalized root
-stored by the pool.
+Withdrawals are pull credits claimed by the fourth frame. The fifth frame
+is the optional wild call. Root publication is a separate permissionless
+call that reads only the active or finalized root stored by the pool.
 
 ## Active implementation
 

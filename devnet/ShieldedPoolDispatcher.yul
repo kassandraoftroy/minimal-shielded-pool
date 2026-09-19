@@ -152,10 +152,11 @@ object "ShieldedPoolDispatcher" {
             }
 
             function verifyFrameApprove() {
-                // One immutable four-frame, self-paying grammar: the EIP-8272
-                // verifier frame, this proof frame, settlement, then claim.
+                // One immutable five-frame, self-paying grammar: the EIP-8272
+                // verifier frame, this proof frame, settlement, claim, then one
+                // optional wild SENDER call (target 0 / empty data is a no-op).
                 if iszero(eq(txParam(0x02), address())) { fail(errShape()) }
-                if iszero(eq(txParam(0x09), 4)) { fail(errShape()) }
+                if iszero(eq(txParam(0x09), 5)) { fail(errShape()) }
                 if iszero(eq(txParam(0x0A), 1)) { fail(errShape()) }
                 if iszero(eq(txParam(0x0B), 1)) { fail(errShape()) }
                 if txParam(0x07) { fail(errShape()) }
@@ -222,6 +223,16 @@ object "ShieldedPoolDispatcher" {
                 if frameParam(3, 0x08) { fail(errShape()) }
                 if iszero(eq(shr(224, frameDataLoad(3, 0)), 0xa3066aab)) { fail(errShape()) }
                 if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 324))) { fail(errShape()) }
+
+                // Frame 4: one wild SENDER call. Value is pinned to 0 so the
+                // callee cannot pull pool ETH. No selector or target pin:
+                // target 0 / empty data is the withdraw-only no-op. A revert
+                // here burns the note (keys already consumed at approval).
+                if iszero(eq(frameParam(4, 0x01), 500000)) { fail(errShape()) }
+                if iszero(eq(frameParam(4, 0x09), 100000)) { fail(errShape()) }
+                if iszero(eq(frameParam(4, 0x02), 2)) { fail(errShape()) }
+                if frameParam(4, 0x03) { fail(errShape()) }
+                if frameParam(4, 0x08) { fail(errShape()) }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.
                 let nf1 := frameDataLoad(2, 132)

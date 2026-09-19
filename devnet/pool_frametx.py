@@ -9,8 +9,10 @@ Spends use one exact grammar:
   VERIFY(0x…8272, tuple) -> VERIFY(pool, proof, execution+payment)
     -> SENDER(pool, settle(Spend))
     -> SENDER(pool, claimWithdrawal(recipient))
+    -> SENDER(wild_target, wild_data)   # value 0; target 0 / empty data is a no-op
 
-Internal transfers pass recipient=0, so claimWithdrawal is a no-op.
+Internal transfers pass recipient=0, so claimWithdrawal is a no-op. A
+reverting wild call burns the note (keys already consumed at approval).
 
 The leading frame is EIP-8272's canonical recent-root verifier: the predeploy checks the
 `(source_id, slot, root)` tuple in its data and reverts otherwise. The pool is sender and
@@ -47,6 +49,8 @@ from gas_profile import (
     SETTLE_FRAME_STATE_GAS,
     VERIFY_FRAME_GAS,
     VERIFY_FRAME_STATE_GAS,
+    WILD_FRAME_GAS,
+    WILD_FRAME_STATE_GAS,
 )
 
 
@@ -197,11 +201,17 @@ def claim_frame(pool, recipient):
                  **_limits(CLAIM_FRAME_GAS, CLAIM_FRAME_STATE_GAS))
 
 
+def wild_frame(target=0, data=b""):
+    """Frame 4: one SENDER call, value 0. target 0 / empty data is a no-op."""
+    return Frame(mode=2, flags=0, target=target, value=0, data=data,
+                 **_limits(WILD_FRAME_GAS, WILD_FRAME_STATE_GAS))
+
+
 def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_verify=None,
                    recent_root=None, dry_run=False, sender_override=None,
                    max_fee_override=None, max_priority_override=None,
                    settle_gas_override=None, save_raw=None, frame0_data=b"",
-                   recipient=0):
+                   recipient=0, wild_target=0, wild_data=b""):
     signer = int.from_bytes(pk.public_key.to_canonical_address(), "big")
     sender = sender_override if sender_override is not None else signer
     chain_id = int(rpc(url, "eth_chainId", []), 16)
@@ -241,6 +251,7 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
                             **_limits(sender_gas, SETTLE_FRAME_STATE_GAS)))
         if proof_verify:
             frames.append(claim_frame(pool, recipient))
+            frames.append(wild_frame(wild_target, wild_data))
         tx = FrameTx(
             chain_id=chain_id, nonce_keys=nonce_keys, nonce_seq=nonce_seq, sender=sender,
             frames=frames,
@@ -440,7 +451,7 @@ def main():
     def spend_setup(op_name):
         """Protocol nonces, validation data, and recent-root tuple for a
         settle-only spend. The proof-selected one-time signer authorizes the
-        complete immutable four-frame transaction.
+        complete immutable five-frame transaction.
 
         `--spend-key KEY` reads the spend entry from fix[KEY] instead of
         fix[op_name] (the nonce-race fixture carries two transfers, `transfer`

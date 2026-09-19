@@ -18,6 +18,8 @@ from pool_frametx import (
     SPEND_TUPLE,
     VERIFY_FRAME_GAS,
     VERIFY_FRAME_STATE_GAS,
+    WILD_FRAME_GAS,
+    WILD_FRAME_STATE_GAS,
     cast_calldata,
     proof_bytes,
     spend_args,
@@ -57,6 +59,8 @@ def build():
                   state_limit=SETTLE_FRAME_STATE_GAS),
             Frame(2, 0, pool, CLAIM_FRAME_GAS, 0, claim,
                   state_limit=CLAIM_FRAME_STATE_GAS),
+            Frame(2, 0, 0, WILD_FRAME_GAS, 0, b"",
+                  state_limit=WILD_FRAME_STATE_GAS),
         ],
         signatures=[FrameSig(FrameSig.SECP256K1, authorizer, b"", b"")],
         max_priority_fee=1,
@@ -104,6 +108,9 @@ def main():
     add("claim_target", lambda x: setattr(x.frames[3], "target", x.frames[3].target ^ 1))
     add("claim_gas", lambda x: setattr(x.frames[3], "gas_limit", CLAIM_FRAME_GAS - 1))
     add("claim_who", lambda x: setattr(x.frames[3], "data", bytes([x.frames[3].data[0] ^ 1]) + x.frames[3].data[1:]))
+    add("wild_target", lambda x: setattr(x.frames[4], "target", 1))
+    add("wild_gas", lambda x: setattr(x.frames[4], "gas_limit", WILD_FRAME_GAS - 1))
+    add("wild_data", lambda x: setattr(x.frames[4], "data", b"\x01"))
     for word in range(12):
         add(f"settle_word_{word}", lambda x, w=word: setattr(
             x.frames[2], "data", x.frames[2].data[:4 + w * 32] +
