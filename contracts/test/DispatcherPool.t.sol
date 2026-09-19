@@ -270,6 +270,10 @@ contract DispatcherPoolTest {
         require(recorder.lastRoot() == EMPTY_ROOT, "wrong root");
     }
 
+    function test_claim_zero_recipient_is_noop() public {
+        pool.claimWithdrawal(payable(address(0)));
+    }
+
     function test_failed_claim_preserves_credit() public {
         RejectEther rejecter = new RejectEther();
         ShieldedPoolLogic.Spend memory s = _spend(SINK_0, SINK_1, 2 ether, address(rejecter));

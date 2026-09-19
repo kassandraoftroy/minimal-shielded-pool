@@ -9,6 +9,8 @@ from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
 from pool_frametx import (
+    CLAIM_FRAME_GAS,
+    CLAIM_FRAME_STATE_GAS,
     RECENT_ROOT_ADDRESS,
     RECENT_ROOT_FRAME_GAS,
     SETTLE_FRAME_GAS,
@@ -38,6 +40,7 @@ def build():
     source = keccak(pool.to_bytes(20, "big") + epoch.to_bytes(32, "big"))
     root = bytes.fromhex(entry["root"][2:])
     settle = cast_calldata(f"settle({SPEND_TUPLE})", spend_args(entry))
+    claim = cast_calldata("claimWithdrawal(address)", entry["recipient"])
     authorizer = int(entry["authorizer"], 16)
     pk = keys.PrivateKey(bytes.fromhex(entry["authorizer_private_key"][2:]))
     tx = FrameTx(
@@ -52,6 +55,8 @@ def build():
                   state_limit=VERIFY_FRAME_STATE_GAS),
             Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
                   state_limit=SETTLE_FRAME_STATE_GAS),
+            Frame(2, 0, pool, CLAIM_FRAME_GAS, 0, claim,
+                  state_limit=CLAIM_FRAME_STATE_GAS),
         ],
         signatures=[FrameSig(FrameSig.SECP256K1, authorizer, b"", b"")],
         max_priority_fee=1,
@@ -95,6 +100,10 @@ def main():
     add("settle_gas", lambda x: setattr(x.frames[2], "gas_limit", SETTLE_FRAME_GAS - 1))
     add("settle_state_gas", lambda x: setattr(
         x.frames[2], "state_limit", SETTLE_FRAME_STATE_GAS - 1))
+    add("claim_mode", lambda x: setattr(x.frames[3], "mode", 1))
+    add("claim_target", lambda x: setattr(x.frames[3], "target", x.frames[3].target ^ 1))
+    add("claim_gas", lambda x: setattr(x.frames[3], "gas_limit", CLAIM_FRAME_GAS - 1))
+    add("claim_who", lambda x: setattr(x.frames[3], "data", bytes([x.frames[3].data[0] ^ 1]) + x.frames[3].data[1:]))
     for word in range(12):
         add(f"settle_word_{word}", lambda x, w=word: setattr(
             x.frames[2], "data", x.frames[2].data[:4 + w * 32] +

@@ -199,31 +199,19 @@ json.dump(cfg, open("deploy_config.json", "w"), indent=1)
 print(f"    withdraw root slot={sys.argv[1]}")
 PY
 
-  echo "==> withdraw (shielded spend, note -> credit)"
-  python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
-
-  # A withdraw books a credit; it does not push funds. Until the credit is claimed the
-  # recipient's balance is unchanged and the pool still holds the money, so a run that
-  # stops at the withdraw proves the proof verified and nothing about the payout.
-  # 900k rather than a round 200k: the claim measured 216,740 gas here, and at 200,000 it
-  # runs out mid-payout and reverts having consumed the lot.
-  #
-  # The payout is judged as a balance delta, not as "nonzero afterwards": the fixture's
-  # recipient is a fixed address, so on a chain that has seen one successful run it is
-  # already funded and a reverted claim would otherwise pass.
   RECIPIENT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recipient"])' "$SMOKE_OUTPUT")
   PUBLIC_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw"]["public_amount"])' "$SMOKE_OUTPUT")
   BEFORE=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
-  echo "==> claim (credit -> recipient $RECIPIENT, expecting +$PUBLIC_AMOUNT wei)"
-  claim=$(cast send "$POOL" 'claimWithdrawal(address)' "$RECIPIENT" --rpc-url "$RPC" \
-    --private-key "$DEPLOYER_PK" "${PRICE[@]}" --gas-limit 900000 --json)
-  [[ $(jq -r '.status' <<<"$claim") == "0x1" ]] || {
-    echo "claim reverted: $(jq -r '.transactionHash' <<<"$claim")" >&2; exit 1; }
+  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$PUBLIC_AMOUNT wei)"
+  python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
   AFTER=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
   # Balances outgrow bash's 64-bit arithmetic after a few ETH, so subtract in python.
+  # The payout is judged as a balance delta, not as "nonzero afterwards": the fixture's
+  # recipient is a fixed address, so on a chain that has seen one successful run it is
+  # already funded and a reverted claim would otherwise pass.
   PAID=$(python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$AFTER" "$BEFORE")
   [[ $PAID == "$PUBLIC_AMOUNT" ]] || {
-    echo "claim paid $PAID wei to the recipient, expected $PUBLIC_AMOUNT" >&2; exit 1; }
+    echo "withdraw paid $PAID wei to the recipient, expected $PUBLIC_AMOUNT" >&2; exit 1; }
   echo "    recipient +$PAID wei ($BEFORE -> $AFTER)"
   echo "==> spends settled"
 fi

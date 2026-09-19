@@ -14,6 +14,11 @@ RECENT_ROOT_TUPLE_BYTES = 72
 VERIFY_FRAME_GAS = 320_000
 SETTLE_FRAME_GAS = 1_400_000
 SETTLE_FRAME_STATE_GAS = 550_000
+# Frame 3 of the four-frame spend: claimWithdrawal. Pinned like every other
+# budget. Covers the measured ~217k payout plus cold-account margin.
+CLAIM_FRAME_GAS = 500_000
+CLAIM_FRAME_STATE_GAS = 200_000
+CLAIM_WITHDRAWAL_CALLDATA = 36
 
 STATE_BYTES_PER_STORAGE_SET = 64
 CPSB = 1_530

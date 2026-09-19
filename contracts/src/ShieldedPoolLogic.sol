@@ -172,7 +172,10 @@ contract ShieldedPoolLogic {
         emit RootPublished(epoch, sourceId(epoch), root);
     }
 
+    /// @notice Pull a credited withdrawal. `who == 0` is a no-op so internal
+    /// transfers share the four-frame spend grammar without a zero-address payout.
     function claimWithdrawal(address payable who) external onlyDelegate {
+        if (who == address(0)) return;
         uint256 amount = withdrawalCredit[who];
         if (amount == 0) revert NoCredit();
         withdrawalCredit[who] = 0;

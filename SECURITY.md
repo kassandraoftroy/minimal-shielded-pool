@@ -29,14 +29,15 @@ sponsorship or caller-selected fee recipient.
 The circuit selects a fresh nonzero secp256k1 authorizer. EIP-8141 validates
 its canonical low-s signature over the complete FrameTx hash. The dispatcher
 requires that recovered signer through `SIGPARAM`, one signature, one exact
-three-frame grammar, the complete two-key EIP-8250 nonce set, and the exact
+four-frame grammar, the complete two-key EIP-8250 nonce set, and the exact
 EIP-8272 tuple proven by the leading recent-root verifier frame. A copied or
 rerandomized proof cannot be rewrapped without the one-time private key.
 
 Payment approval consumes the EIP-8250 keys before SENDER settlement. Safety
-therefore requires settlement to be total for every proof-valid admitted
-transaction under the pinned fork gas profile. The implementation removes
-optional post-approval calls. Its required Poseidon operations use fixed-code
+therefore requires settlement and the pinned claim frame to be total for every
+proof-valid admitted transaction under the pinned fork gas profile. The
+implementation does not allow caller-chosen post-approval calls. Its required
+Poseidon operations use fixed-code
 static calls to two immutable, deployment-verified libraries. The 2M SENDER
 constant must be re-proved before every gas repricing fork.
 
