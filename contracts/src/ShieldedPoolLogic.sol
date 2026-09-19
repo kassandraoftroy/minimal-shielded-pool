@@ -177,10 +177,11 @@ contract ShieldedPoolLogic {
         _claimWithdrawal(who);
     }
 
-    /// @notice Optional CREATE2 then [`claimWithdrawal`]. `factory == 0` skips
-    /// deploy (vanilla EOA). `who == 0` is a no-op so internal transfers share
-    /// the five-frame grammar without attempting a zero-address payout.
-    /// Otherwise `who` must be `factory.getAddress(owner, salt)` when `factory != 0`.
+    /// @notice Optional CREATE2 then [`claimWithdrawal`].
+    /// `factory == 0` skips deploy: vanilla EOA **or** an already-deployed
+    /// FrameAccount. `who == 0` is a no-op so internal transfers share the
+    /// five-frame grammar. Otherwise when `factory != 0`, `who` must be
+    /// `factory.getAddress(owner, salt)` (`createAccount` is idempotent).
     function ensureAndClaim(address factory, address owner, bytes32 salt, address payable who)
         external
         onlyDelegate

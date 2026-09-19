@@ -29,12 +29,14 @@ Each spend has exactly five frames:
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
 4. `SENDER(pool, ensureAndClaim(factory, owner, salt, recipient))`. `factory
-   == 0` skips CREATE2 (vanilla EOA). `recipient == 0` is a no-op so internal
-   transfers share this grammar.
+   == 0` skips CREATE2: a vanilla EOA **or** an already-deployed
+   `FrameAccount`. `recipient == 0` is a no-op so internal transfers share
+   this grammar. `factory != 0` is idempotent if the account already has code.
 5. `SENDER(recipient, executeBatch(calls, signature))`. Empty `calls` is a
    no-op against an EOA. A `FrameAccount` ignores pool privilege: the owner
-   must ECDSA-sign the batch, so a later pool spend cannot drive someone
-   else's account.
+   must ECDSA-sign the batch (including empty calls), so a later pool spend
+   cannot drive someone else's account. Gas still comes from the pool as
+   sender/payer.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including

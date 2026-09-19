@@ -152,4 +152,36 @@ contract FrameAccountTest {
         require(who.balance == 1 ether, "paid");
         require(ShieldedPoolLogic(address(proxy)).withdrawalCredit(who) == 0, "cleared");
     }
+
+    /// Existing FrameAccount: factory=0 skips CREATE2, claim still pays, pool
+    /// still runs executeBatch if the owner signed. Same 5-frame gas payer.
+    function testExistingAccountSkipsDeployAndExecutes() public {
+        ShieldedPoolLogic logic = new ShieldedPoolLogic(address(new MockPoseidonT3()), address(new MockPoseidonT4()));
+        LogicProxy proxy = new LogicProxy(address(logic));
+        uint256 ownerPk = 3;
+        address owner = vm.addr(ownerPk);
+        FrameAccountFactory factory = new FrameAccountFactory(address(proxy));
+        address who = factory.createAccount(owner, bytes32(uint256(1)));
+        require(who.code.length > 0, "predeployed");
+
+        vm.store(
+            address(proxy),
+            keccak256(abi.encode(who, uint256(24))),
+            bytes32(uint256(1 ether))
+        );
+        vm.deal(address(proxy), 1 ether);
+
+        ShieldedPoolLogic(address(proxy)).ensureAndClaim(address(0), address(0), bytes32(0), payable(who));
+        require(who.balance == 1 ether, "claimed");
+        require(who.code.length > 0, "not redeployed");
+
+        Target t = new Target();
+        FrameAccount.Call[] memory calls = new FrameAccount.Call[](1);
+        calls[0] = FrameAccount.Call({target: address(t), value: 0, data: abi.encodeCall(Target.ping, ())});
+        bytes memory sig = _sig(ownerPk, FrameAccount(payable(who)), calls);
+        vm.prank(address(proxy));
+        FrameAccount(payable(who)).executeBatch(calls, sig);
+        require(t.hits() == 1, "executed");
+        require(FrameAccount(payable(who)).nonce() == 1, "nonce");
+    }
 }

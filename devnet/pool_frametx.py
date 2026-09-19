@@ -196,9 +196,10 @@ def recent_root_tuple(url, cfg, e):
 
 
 def spend_tail_frames(pool, recipient, factory=0, owner=0, salt=None, calls=None, signature=None):
-    """Frames 3 and 4 of the five-frame spend. `factory == 0` skips CREATE2;
-    empty `calls` is a no-op. `signature` is the owner's ECDSA over the batch
-    (required on a FrameAccount; ignored by an EOA with no code)."""
+    """Frames 3 and 4 of the five-frame spend. `factory == 0` skips CREATE2
+    (EOA or an already-deployed FrameAccount); empty `calls` is a no-op on an
+    EOA. `signature` is the owner's ECDSA over the batch (required on a
+    FrameAccount, including empty calls; ignored by an EOA with no code)."""
     salt = salt if salt is not None else bytes(32)
     if isinstance(salt, int):
         salt = salt.to_bytes(32, "big")
