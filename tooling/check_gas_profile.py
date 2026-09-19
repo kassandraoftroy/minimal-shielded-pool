@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "devnet"))
 
 from gas_profile import (  # noqa: E402
+    CLAIM_FRAME_GAS,
+    CLAIM_FRAME_STATE_GAS,
+    EXECUTE_FRAME_GAS,
+    EXECUTE_FRAME_STATE_GAS,
     HEGOTA_TESTNET_MAX_VERIFY_GAS,
     KEYED_NONCE_FIRST_USE_STATE_GAS,
     MAX_VERIFY_STATE_GAS,
@@ -120,6 +124,10 @@ def main():
         f"if iszero(eq(frameParam(1, 0x09), {VERIFY_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x01), {SETTLE_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(3, 0x01), {CLAIM_FRAME_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(3, 0x09), {CLAIM_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(4, 0x01), {EXECUTE_FRAME_GAS})) {{ fail(errShape()) }}",
+        f"if iszero(eq(frameParam(4, 0x09), {EXECUTE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"

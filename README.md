@@ -20,7 +20,7 @@ The circuit enforces membership for positive inputs, value conservation,
 outputs, two position-specific zero-value sinks, a nonzero `uint160`
 authorizer, and the transfer/withdrawal recipient shape.
 
-Each spend has exactly three frames:
+Each spend has exactly five frames:
 
 1. `VERIFY(0x…8272, tuple)`, EIP-8272's canonical recent-root verifier. The
    protocol runs `RECENT_ROOT_CODE` over the 72-byte tuple before any pool code
@@ -28,6 +28,11 @@ Each spend has exactly three frames:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
+4. `SENDER(pool, ensureAndClaim(factory, owner, salt, recipient))`. `factory
+   == 0` skips CREATE2 (vanilla EOA). `recipient == 0` is a no-op so internal
+   transfers share this grammar.
+5. `SENDER(recipient, executeBatch(calls))`. Empty `calls` is a no-op against
+   an EOA; a `FrameAccount` accepts the pool as `msg.sender`.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including
@@ -54,6 +59,8 @@ call that reads only the active or finalized root stored by the pool.
 circuits/spend.circom
 contracts/src/Groth16Verifier.sol
 contracts/src/ShieldedPoolLogic.sol
+contracts/src/FrameAccount.sol
+contracts/src/FrameAccountFactory.sol
 contracts/src/PoseidonT3.sol
 contracts/src/PoseidonT4.sol
 devnet/ShieldedPoolDispatcher.yul

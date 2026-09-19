@@ -29,7 +29,7 @@ sponsorship or caller-selected fee recipient.
 The circuit selects a fresh nonzero secp256k1 authorizer. EIP-8141 validates
 its canonical low-s signature over the complete FrameTx hash. The dispatcher
 requires that recovered signer through `SIGPARAM`, one signature, one exact
-three-frame grammar, the complete two-key EIP-8250 nonce set, and the exact
+five-frame grammar, the complete two-key EIP-8250 nonce set, and the exact
 EIP-8272 tuple proven by the leading recent-root verifier frame. A copied or
 rerandomized proof cannot be rewrapped without the one-time private key.
 

@@ -68,6 +68,7 @@ contract ShieldedPoolLogic {
     error PayoutFailed();
     error InvalidHashLibrary();
     error HashFailed();
+    error InvalidAccount();
 
     modifier onlyDelegate() {
         if (address(this) == IMPLEMENTATION_SELF) revert DirectImplementationCall();
@@ -173,6 +174,30 @@ contract ShieldedPoolLogic {
     }
 
     function claimWithdrawal(address payable who) external onlyDelegate {
+        _claimWithdrawal(who);
+    }
+
+    /// @notice Optional CREATE2 then [`claimWithdrawal`]. `factory == 0` skips
+    /// deploy (vanilla EOA). `who == 0` is a no-op so internal transfers share
+    /// the five-frame grammar without attempting a zero-address payout.
+    /// Otherwise `who` must be `factory.getAddress(owner, salt)` when `factory != 0`.
+    function ensureAndClaim(address factory, address owner, bytes32 salt, address payable who)
+        external
+        onlyDelegate
+    {
+        if (who == address(0)) {
+            if (factory != address(0)) revert InvalidAccount();
+            return;
+        }
+        if (factory != address(0)) {
+            address predicted = IFrameAccountFactory(factory).getAddress(owner, salt);
+            if (predicted != who) revert InvalidAccount();
+            IFrameAccountFactory(factory).createAccount(owner, salt);
+        }
+        _claimWithdrawal(who);
+    }
+
+    function _claimWithdrawal(address payable who) internal {
         uint256 amount = withdrawalCredit[who];
         if (amount == 0) revert NoCredit();
         withdrawalCredit[who] = 0;
@@ -265,4 +290,9 @@ contract ShieldedPoolLogic {
         if (l == 19) return 0x1830ee67b5fb554ad5f63d4388800e1cfe78e310697d46e43c9ce36134f72cca;
         return EMPTY_ROOT;
     }
+}
+
+interface IFrameAccountFactory {
+    function getAddress(address owner, bytes32 salt) external view returns (address);
+    function createAccount(address owner, bytes32 salt) external returns (address);
 }

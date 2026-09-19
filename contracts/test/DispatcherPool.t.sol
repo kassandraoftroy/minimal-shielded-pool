@@ -16,6 +16,8 @@ interface IPool {
     function settle(ShieldedPoolLogic.Spend calldata s) external;
     function publishEpochRoot(uint64 epoch) external;
     function claimWithdrawal(address payable who) external;
+    function ensureAndClaim(address factory, address owner, bytes32 salt, address payable who)
+        external;
     function currentRoot() external view returns (bytes32);
     function currentEpoch() external view returns (uint64);
     function nextIndex() external view returns (uint32);
