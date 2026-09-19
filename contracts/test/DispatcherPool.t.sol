@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ShieldedPoolLogic} from "../src/ShieldedPoolLogic.sol";
+import {FrameAccountFactory} from "../src/FrameAccountFactory.sol";
 
 interface Vm {
     function deal(address, uint256) external;
@@ -9,6 +10,8 @@ interface Vm {
     function expectRevert(bytes4) external;
     function getDeployedCode(string calldata artifactPath) external returns (bytes memory);
     function store(address, bytes32, bytes32) external;
+    function getNonce(address) external view returns (uint64);
+    function computeCreateAddress(address deployer, uint256 nonce) external pure returns (address);
 }
 
 interface IPool {
@@ -16,7 +19,7 @@ interface IPool {
     function settle(ShieldedPoolLogic.Spend calldata s) external;
     function publishEpochRoot(uint64 epoch) external;
     function claimWithdrawal(address payable who) external;
-    function ensureAndClaim(address factory, address owner, bytes32 salt, address payable who)
+    function ensureAndClaim(bool deployFrameAcct, address owner, bytes32 salt, address payable who)
         external;
     function currentRoot() external view returns (bytes32);
     function currentEpoch() external view returns (uint64);
@@ -116,10 +119,18 @@ contract DispatcherPoolTest {
     function setUp() public {
         MockPoseidonT3 t3 = new MockPoseidonT3();
         MockPoseidonT4 t4 = new MockPoseidonT4();
-        logic = new ShieldedPoolLogic(address(t3), address(t4));
-        proxy = new LogicProxy(address(logic));
+        (logic, proxy) = _deployLogic(address(t3), address(t4));
         pool = IPool(address(proxy));
         vm.deal(address(proxy), 100 ether);
+    }
+
+    function _deployLogic(address t3, address t4) internal returns (ShieldedPoolLogic logic_, LogicProxy proxy_) {
+        uint64 n = vm.getNonce(address(this));
+        address predicted = vm.computeCreateAddress(address(this), n + 2);
+        FrameAccountFactory factory = new FrameAccountFactory(predicted);
+        logic_ = new ShieldedPoolLogic(t3, t4, address(factory));
+        proxy_ = new LogicProxy(address(logic_));
+        require(address(proxy_) == predicted, "pool");
     }
 
     function _spend(bytes32 out1, bytes32 out2, uint256 amount, address recipient)
@@ -163,8 +174,7 @@ contract DispatcherPoolTest {
         address t4 = address(0xA004);
         vm.etch(t3, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
         vm.etch(t4, vm.getDeployedCode("PoseidonT4.sol:PoseidonT4"));
-        ShieldedPoolLogic actualLogic = new ShieldedPoolLogic(t3, t4);
-        LogicProxy actualProxy = new LogicProxy(address(actualLogic));
+        (, LogicProxy actualProxy) = _deployLogic(t3, t4);
         IPool actualPool = IPool(address(actualProxy));
         uint32 index = actualPool.shield{value: 1}(bytes32(uint256(99)));
         require(index == 0 && actualPool.currentRoot() != EMPTY_ROOT, "actual Poseidon calls failed");
@@ -189,8 +199,7 @@ contract DispatcherPoolTest {
         address t4 = address(0xA014);
         vm.etch(t3, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
         vm.etch(t4, vm.getDeployedCode("PoseidonT4.sol:PoseidonT4"));
-        ShieldedPoolLogic actualLogic = new ShieldedPoolLogic(t3, t4);
-        LogicProxy actualProxy = new LogicProxy(address(actualLogic));
+        (, LogicProxy actualProxy) = _deployLogic(t3, t4);
         IPool actualPool = IPool(address(actualProxy));
 
         // A valid cap-1 tree has every filled-subtree slot populated. The

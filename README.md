@@ -28,15 +28,18 @@ Each spend has exactly five frames:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
-4. `SENDER(pool, ensureAndClaim(factory, owner, salt, recipient))`. `factory
-   == 0` skips CREATE2: a vanilla EOA **or** an already-deployed
-   `FrameAccount`. `recipient == 0` is a no-op so internal transfers share
-   this grammar. `factory != 0` is idempotent if the account already has code.
-5. `SENDER(recipient, executeBatch(calls, signature))`. Empty `calls` is a
-   no-op against an EOA. A `FrameAccount` ignores pool privilege: the owner
-   must ECDSA-sign the batch (including empty calls), so a later pool spend
-   cannot drive someone else's account. Gas still comes from the pool as
-   sender/payer.
+4. `SENDER(pool, ensureAndClaim(deployFrameAcct, owner, salt, recipient))`.
+   `deployFrameAcct == false` skips CREATE2. `recipient == 0` is a no-op so
+   internal transfers share this grammar. `deployFrameAcct` CREATE2s through
+   the pool's immutable `FRAME_ACCOUNT_FACTORY` (idempotent if code exists).
+5. `SENDER(recipient, executeBatch(calls, signature))`. Empty `calls` means
+   no extra calls — the recipient just receives the withdrawal. Nonempty
+   `calls` only run if that account has code that will execute them (a
+   `FrameAccount`, another smart account, or an EOA that previously delegated
+   to such an implementation). A `FrameAccount` ignores pool privilege: the
+   owner must ECDSA-sign the batch (including empty calls), so a later pool
+   spend cannot drive someone else's account. Gas still comes from the pool
+   as sender/payer.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including

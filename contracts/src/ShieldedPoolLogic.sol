@@ -18,6 +18,7 @@ contract ShieldedPoolLogic {
     address private immutable IMPLEMENTATION_SELF = address(this);
     address public immutable POSEIDON_T3;
     address public immutable POSEIDON_T4;
+    address public immutable FRAME_ACCOUNT_FACTORY;
 
     // The first 25 slots deliberately preserve the original dispatcher layout.
     bytes32[DEPTH + 1] public filledSubtrees; // slots 0..20
@@ -69,6 +70,7 @@ contract ShieldedPoolLogic {
     error InvalidHashLibrary();
     error HashFailed();
     error InvalidAccount();
+    error InvalidFactory();
 
     modifier onlyDelegate() {
         if (address(this) == IMPLEMENTATION_SELF) revert DirectImplementationCall();
@@ -76,10 +78,12 @@ contract ShieldedPoolLogic {
     }
 
     /// @dev The dispatcher constructor initializes slot 22 to EMPTY_ROOT.
-    constructor(address poseidonT3, address poseidonT4) {
+    constructor(address poseidonT3, address poseidonT4, address frameAccountFactory) {
         if (poseidonT3.code.length == 0 || poseidonT4.code.length == 0) revert InvalidHashLibrary();
+        if (frameAccountFactory.code.length == 0) revert InvalidFactory();
         POSEIDON_T3 = poseidonT3;
         POSEIDON_T4 = poseidonT4;
+        FRAME_ACCOUNT_FACTORY = frameAccountFactory;
     }
 
     function sourceId(uint64 epoch) public view returns (bytes32) {
@@ -178,22 +182,25 @@ contract ShieldedPoolLogic {
     }
 
     /// @notice Optional CREATE2 then [`claimWithdrawal`].
-    /// `factory == 0` skips deploy: vanilla EOA **or** an already-deployed
-    /// FrameAccount. `who == 0` is a no-op so internal transfers share the
-    /// five-frame grammar. Otherwise when `factory != 0`, `who` must be
-    /// `factory.getAddress(owner, salt)` (`createAccount` is idempotent).
-    function ensureAndClaim(address factory, address owner, bytes32 salt, address payable who)
+    /// `deployFrameAcct == false` skips CREATE2: vanilla EOA **or** an
+    /// already-deployed FrameAccount. `who == 0` is a no-op so internal
+    /// transfers share the five-frame grammar. Otherwise when
+    /// `deployFrameAcct`, `who` must be
+    /// `FRAME_ACCOUNT_FACTORY.getAddress(owner, salt)` (`createAccount` is
+    /// idempotent). The factory is an immutable so a spend cannot name a
+    /// different factory.
+    function ensureAndClaim(bool deployFrameAcct, address owner, bytes32 salt, address payable who)
         external
         onlyDelegate
     {
         if (who == address(0)) {
-            if (factory != address(0)) revert InvalidAccount();
+            if (deployFrameAcct) revert InvalidAccount();
             return;
         }
-        if (factory != address(0)) {
-            address predicted = IFrameAccountFactory(factory).getAddress(owner, salt);
+        if (deployFrameAcct) {
+            address predicted = IFrameAccountFactory(FRAME_ACCOUNT_FACTORY).getAddress(owner, salt);
             if (predicted != who) revert InvalidAccount();
-            IFrameAccountFactory(factory).createAccount(owner, salt);
+            IFrameAccountFactory(FRAME_ACCOUNT_FACTORY).createAccount(owner, salt);
         }
         _claimWithdrawal(who);
     }

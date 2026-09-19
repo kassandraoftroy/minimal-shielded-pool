@@ -14,6 +14,8 @@ interface Vm {
     function stopPrank() external;
     function store(address, bytes32, bytes32) external;
     function sign(uint256 privateKey, bytes32 digest) external pure returns (uint8 v, bytes32 r, bytes32 s);
+    function getNonce(address) external view returns (uint64);
+    function computeCreateAddress(address deployer, uint256 nonce) external pure returns (address);
 }
 
 contract MockPoseidonT3 {
@@ -74,6 +76,18 @@ contract FrameAccountTest {
         return abi.encodePacked(r, s, v);
     }
 
+    function _deployPool() internal returns (LogicProxy proxy, FrameAccountFactory factory) {
+        MockPoseidonT3 t3 = new MockPoseidonT3();
+        MockPoseidonT4 t4 = new MockPoseidonT4();
+        uint64 n = vm.getNonce(address(this));
+        address predicted = vm.computeCreateAddress(address(this), n + 2);
+        factory = new FrameAccountFactory(predicted);
+        ShieldedPoolLogic logic = new ShieldedPoolLogic(address(t3), address(t4), address(factory));
+        proxy = new LogicProxy(address(logic));
+        require(address(proxy) == predicted, "pool");
+        require(ShieldedPoolLogic(address(proxy)).FRAME_ACCOUNT_FACTORY() == address(factory), "factory");
+    }
+
     function testFactoryCreateAndExecute() public {
         address pool = address(0xBEEF);
         FrameAccountFactory factory = new FrameAccountFactory(pool);
@@ -127,15 +141,12 @@ contract FrameAccountTest {
     }
 
     function testEnsureAndClaimZeroRecipientIsNoop() public {
-        ShieldedPoolLogic logic = new ShieldedPoolLogic(address(new MockPoseidonT3()), address(new MockPoseidonT4()));
-        LogicProxy proxy = new LogicProxy(address(logic));
-        ShieldedPoolLogic(address(proxy)).ensureAndClaim(address(0), address(0), bytes32(0), payable(address(0)));
+        (LogicProxy proxy,) = _deployPool();
+        ShieldedPoolLogic(address(proxy)).ensureAndClaim(false, address(0), bytes32(0), payable(address(0)));
     }
 
     function testEnsureAndClaimDeploysAndPays() public {
-        ShieldedPoolLogic logic = new ShieldedPoolLogic(address(new MockPoseidonT3()), address(new MockPoseidonT4()));
-        LogicProxy proxy = new LogicProxy(address(logic));
-        FrameAccountFactory factory = new FrameAccountFactory(address(proxy));
+        (LogicProxy proxy, FrameAccountFactory factory) = _deployPool();
         address owner = vm.addr(2);
         bytes32 salt = bytes32(uint256(9));
         address who = factory.getAddress(owner, salt);
@@ -147,20 +158,19 @@ contract FrameAccountTest {
         );
         vm.deal(address(proxy), 1 ether);
 
-        ShieldedPoolLogic(address(proxy)).ensureAndClaim(address(factory), owner, salt, payable(who));
+        ShieldedPoolLogic(address(proxy)).ensureAndClaim(true, owner, salt, payable(who));
         require(who.code.length > 0, "deployed");
         require(who.balance == 1 ether, "paid");
         require(ShieldedPoolLogic(address(proxy)).withdrawalCredit(who) == 0, "cleared");
     }
 
-    /// Existing FrameAccount: factory=0 skips CREATE2, claim still pays, pool
-    /// still runs executeBatch if the owner signed. Same 5-frame gas payer.
+    /// Existing FrameAccount: deployFrameAcct=false skips CREATE2, claim still
+    /// pays, pool still runs executeBatch if the owner signed. Same 5-frame
+    /// gas payer.
     function testExistingAccountSkipsDeployAndExecutes() public {
-        ShieldedPoolLogic logic = new ShieldedPoolLogic(address(new MockPoseidonT3()), address(new MockPoseidonT4()));
-        LogicProxy proxy = new LogicProxy(address(logic));
+        (LogicProxy proxy, FrameAccountFactory factory) = _deployPool();
         uint256 ownerPk = 3;
         address owner = vm.addr(ownerPk);
-        FrameAccountFactory factory = new FrameAccountFactory(address(proxy));
         address who = factory.createAccount(owner, bytes32(uint256(1)));
         require(who.code.length > 0, "predeployed");
 
@@ -171,7 +181,7 @@ contract FrameAccountTest {
         );
         vm.deal(address(proxy), 1 ether);
 
-        ShieldedPoolLogic(address(proxy)).ensureAndClaim(address(0), address(0), bytes32(0), payable(who));
+        ShieldedPoolLogic(address(proxy)).ensureAndClaim(false, address(0), bytes32(0), payable(who));
         require(who.balance == 1 ether, "claimed");
         require(who.code.length > 0, "not redeployed");
 

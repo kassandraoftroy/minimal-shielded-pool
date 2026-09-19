@@ -47,6 +47,7 @@ raise SystemExit(0 if actual == expected else 1)
 PY
   [[ $(cast call "$addr" 'POSEIDON_T3()(address)' --rpc-url "$RPC") == "$T3" ]]
   [[ $(cast call "$addr" 'POSEIDON_T4()(address)' --rpc-url "$RPC") == "$T4" ]]
+  [[ $(cast call "$addr" 'FRAME_ACCOUNT_FACTORY()(address)' --rpc-url "$RPC") == "$FACTORY" ]]
 }
 
 CHAIN_ID=$(cast chain-id --rpc-url "$RPC")
@@ -76,18 +77,32 @@ echo "    poseidonT3=$T3 poseidonT4=$T4"
 verify_library_runtime "$T3" "$T3_CODE" || { echo "PoseidonT3 runtime mismatch"; exit 1; }
 verify_library_runtime "$T4" "$T4_CODE" || { echo "PoseidonT4 runtime mismatch"; exit 1; }
 
-echo "==> settlement logic"
+echo "==> FrameAccount factory + settlement logic"
+DEPLOYER=$(cast wallet address --private-key "$DEPLOYER_PK")
+NONCE=$(cast nonce "$DEPLOYER" --rpc-url "$RPC")
+PRED_FACTORY=$(cast compute-address "$DEPLOYER" --nonce "$NONCE" | grep -oE '0x[0-9a-fA-F]{40}' | tail -1)
+PRED_LOGIC=$(cast compute-address "$DEPLOYER" --nonce $((NONCE + 1)) | grep -oE '0x[0-9a-fA-F]{40}' | tail -1)
+PRED_POOL=$(cast compute-address "$DEPLOYER" --nonce $((NONCE + 2)) | grep -oE '0x[0-9a-fA-F]{40}' | tail -1)
+FACTORY=$(forge create --root "$BN" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" \
+  --gas-limit 3000000 --broadcast src/FrameAccountFactory.sol:FrameAccountFactory \
+  --constructor-args "$PRED_POOL" | deployed)
 LOGIC=$(forge create --root "$BN" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" \
   --gas-limit 14000000 --broadcast src/ShieldedPoolLogic.sol:ShieldedPoolLogic \
-  --constructor-args "$T3" "$T4" | deployed)
+  --constructor-args "$T3" "$T4" "$FACTORY" | deployed)
 LOGIC_BYTECODE=$(forge inspect --root "$BN" src/ShieldedPoolLogic.sol:ShieldedPoolLogic bytecode)
-LOGIC_ARGS=$(cast abi-encode 'constructor(address,address)' "$T3" "$T4")
+LOGIC_ARGS=$(cast abi-encode 'constructor(address,address,address)' "$T3" "$T4" "$FACTORY")
 LOGIC_INIT="${LOGIC_BYTECODE}${LOGIC_ARGS#0x}"
 EXPECTED_LOGIC=$(cast call --rpc-url "$RPC" --create "$LOGIC_INIT")
 verify_logic_runtime "$LOGIC" "$EXPECTED_LOGIC" || {
   echo "logic runtime mismatch" >&2; exit 1;
 }
-echo "    logic=$LOGIC"
+[[ $(printf '%s' "$FACTORY" | tr '[:upper:]' '[:lower:]') == $(printf '%s' "$PRED_FACTORY" | tr '[:upper:]' '[:lower:]') ]] || {
+  echo "factory address mismatch" >&2; exit 1;
+}
+[[ $(printf '%s' "$LOGIC" | tr '[:upper:]' '[:lower:]') == $(printf '%s' "$PRED_LOGIC" | tr '[:upper:]' '[:lower:]') ]] || {
+  echo "logic address mismatch" >&2; exit 1;
+}
+echo "    factory=$FACTORY logic=$LOGIC"
 
 echo "==> immutable dispatcher/pool"
 DISP_INIT=$(python3 dispatcher.py --initcode "$LOGIC" "$VERIFIER")
@@ -95,6 +110,12 @@ POOL=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" --g
   --create "$DISP_INIT" --json | addr_of)
 [[ $(cast code "$POOL" --rpc-url "$RPC") == $(cast call --rpc-url "$RPC" --create "$DISP_INIT") ]] || {
   echo "dispatcher runtime mismatch" >&2; exit 1;
+}
+[[ $(printf '%s' "$POOL" | tr '[:upper:]' '[:lower:]') == $(printf '%s' "$PRED_POOL" | tr '[:upper:]' '[:lower:]') ]] || {
+  echo "pool address mismatch (factory CREATE2 bind)" >&2; exit 1;
+}
+[[ $(cast call "$FACTORY" 'pool()(address)' --rpc-url "$RPC") == "$POOL" ]] || {
+  echo "factory pool immutable mismatch" >&2; exit 1;
 }
 
 SOURCE0=$(cast call "$POOL" 'sourceId(uint64)(bytes32)' 0 --rpc-url "$RPC")
@@ -142,9 +163,9 @@ publish_root() {
 echo "==> publish authenticated post-shield root"
 ROOT_SLOT_DEC=$(publish_root) || exit 1
 
-MANIFEST_PATH=$MANIFEST python3 - "$RPC" "$POOL" "$VERIFIER" "$T3" "$T4" "$LOGIC" "$SOURCE0" "$DOMAIN" "$ROOT_SLOT_DEC" <<'PY'
+MANIFEST_PATH=$MANIFEST python3 - "$RPC" "$POOL" "$VERIFIER" "$T3" "$T4" "$LOGIC" "$FACTORY" "$SOURCE0" "$DOMAIN" "$ROOT_SLOT_DEC" <<'PY'
 import json, os, sys
-keys = ["rpc", "pool", "verifier", "poseidonT3", "poseidonT4", "logic",
+keys = ["rpc", "pool", "verifier", "poseidonT3", "poseidonT4", "logic", "factory",
         "sourceIdEpoch0", "domain", "_slot_transfer"]
 cfg = dict(zip(keys, sys.argv[1:]))
 # The gas figures come from the manifest this deployment was actually gated on, not

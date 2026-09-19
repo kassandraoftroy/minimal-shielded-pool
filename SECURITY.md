@@ -60,7 +60,10 @@ the credit.
 
 The Solidity implementation rejects direct state-changing calls. The immutable
 dispatcher owns funds and storage. Deployment verifies the verifier,
-dispatcher, logic, and both Poseidon runtimes before the pool is used.
+dispatcher, logic, FrameAccount factory, and both Poseidon runtimes before
+the pool is used. Spends cannot name a different factory:
+`ensureAndClaim` CREATE2s only through the logic's immutable
+`FRAME_ACCOUNT_FACTORY`.
 
 ## Assumptions and remaining gates
 

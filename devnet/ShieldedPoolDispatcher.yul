@@ -214,6 +214,7 @@ object "ShieldedPoolDispatcher" {
                 if iszero(eq(shr(224, frameDataLoad(2, 0)), 0x921fcac7)) { fail(errShape()) }
 
                 // Frame 3: ensureAndClaim on the pool. Last arg is settle.recipient.
+                // CREATE2 uses the logic's immutable factory; arg0 is the bool.
                 if iszero(eq(frameParam(3, 0x00), address())) { fail(errShape()) }
                 if iszero(eq(frameParam(3, 0x01), 500000)) { fail(errShape()) }
                 if iszero(eq(frameParam(3, 0x09), 200000)) { fail(errShape()) }
@@ -221,7 +222,8 @@ object "ShieldedPoolDispatcher" {
                 if frameParam(3, 0x03) { fail(errShape()) }
                 if iszero(eq(frameParam(3, 0x04), 132)) { fail(errShape()) }
                 if frameParam(3, 0x08) { fail(errShape()) }
-                if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x4c398cff)) { fail(errShape()) }
+                if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x5a769003)) { fail(errShape()) }
+                if gt(frameDataLoad(3, 4), 1) { fail(errShape()) }
                 if iszero(eq(frameDataLoad(3, 100), frameDataLoad(2, 324))) { fail(errShape()) }
 
                 // Frame 4: executeBatch to the credited recipient (EOA no-op or FrameAccount).
