@@ -27,7 +27,9 @@ Usage (append --dry-run to simulate without submitting):
 
 Spend signing keys come from the fixture's proof-bound
 `authorizer_private_key`. `--root-slot N` supplies the consensus slot in which
-`publishEpochRoot(epoch)` committed the root. Negative-vector flags include
+`publishEpochRoot(epoch)` committed the root. `--allow-failed-claim` sends a
+withdrawal whose DEFAULT claim frame is expected to revert, leaving
+withdrawalCredit for a later claim. Negative-vector flags include
 `--flip-proof`, `--nonce-keys`, `--settle-gas`, and `--sender`.
 """
 import json
@@ -213,7 +215,8 @@ def claim_frame(pool, settle_calldata):
 def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_verify=None,
                    recent_root=None, dry_run=False, sender_override=None,
                    max_fee_override=None, max_priority_override=None,
-                   settle_gas_override=None, save_raw=None, frame0_data=b""):
+                   settle_gas_override=None, save_raw=None, frame0_data=b"",
+                   allow_failed_claim=False):
     try:
         tail = claim_frame(pool, calldata) if proof_verify else None
     except ValueError as error:
@@ -330,19 +333,20 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
                 tx, raw, eff = tx2, raw2, s2
                 print(f"  sized SENDER frame to {sized:,} gas (measured {used:,} + 25%)")
     else:
-        # Since the 2026-07-08 devnet update, non-zero keyed nonces are
-        # public-mempool admissible, so the faithful shape is expected to
-        # simulate VALID. An invalid simulation is a real defect (insolvent
-        # pool, wrong nonce keys, stale root, bad calldata), not the old
-        # "expected inadmissibility": abort rather than broadcast a doomed tx
-        # whose prefix failure the SENDER-revert guard below cannot catch.
-        msg = f"  simulate: INVALID ({sim.get('violation')}); not sending"
-        if protocol_nonces and "Nonce mismatch" in str(sim.get("violation", "")):
-            msg += ("\n  a nullifier keyed nonce was already consumed. If this spend comes from a"
-                    "\n  second deterministic fixture against an already-used deployment, the fixed"
-                    "\n  seed reuses the dummy note and its nullifier collides; regenerate with"
-                    "\n  gen_smoke.py --random or deploy a fresh pool.")
-        raise SystemExit(msg)
+        # A DEFAULT claim revert is not a prefix failure. The live seed path
+        # expects that revert; only abort when settlement itself did not run.
+        outcomes = (sim.get("frames") or []) if allow_failed_claim and protocol_nonces else []
+        if len(outcomes) > 2 and outcomes[2].get("succeeded") is True:
+            print(f"  simulate: valid={sim.get('valid')} violation={sim.get('violation')}; "
+                  "settlement succeeded and failed claim is allowed")
+        else:
+            msg = f"  simulate: INVALID ({sim.get('violation')}); not sending"
+            if protocol_nonces and "Nonce mismatch" in str(sim.get("violation", "")):
+                msg += ("\n  a nullifier keyed nonce was already consumed. If this spend comes from a"
+                        "\n  second deterministic fixture against an already-used deployment, the fixed"
+                        "\n  seed reuses the dummy note and its nullifier collides; regenerate with"
+                        "\n  gen_smoke.py --random or deploy a fresh pool.")
+            raise SystemExit(msg)
 
     # Require frame 2 itself to succeed. A failed claim does not undo
     # settlement; an aggregate executionStatus cannot distinguish these outcomes.
@@ -350,11 +354,18 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         outcomes = (eff or {}).get("frames") or []
         if len(outcomes) <= 2 or outcomes[2].get("succeeded") is not True:
             raise SystemExit("  simulate: settlement frame 2 did not explicitly succeed; not sending")
-        if tail is not None and (len(outcomes) <= 3 or outcomes[3].get("succeeded") is not True):
+        claim_failed = tail is not None and (
+            len(outcomes) <= 3 or outcomes[3].get("succeeded") is not True)
+        if claim_failed and not allow_failed_claim:
             raise SystemExit("  simulate: settlement succeeded but the claim frame failed; "
                              "not sending. The credit would remain and can be claimed later.")
-        if len(outcomes) != len(tx.frames) or any(f.get("succeeded") is not True for f in outcomes):
+        other_failed = len(outcomes) != len(tx.frames) or any(
+            i != 3 and f.get("succeeded") is not True for i, f in enumerate(outcomes))
+        if other_failed:
             raise SystemExit("  simulate: settlement succeeded but another frame failed; not sending")
+        if claim_failed:
+            print("  simulate: settlement succeeded; claim frame failed (allowed); "
+                  "credit will remain for a later claim")
     elif eff and eff.get("executionStatus") and eff["executionStatus"] != "success":
         raise SystemExit(f"  simulate: execution did not succeed "
                          f"({eff.get('executionError') or eff['executionStatus']}); not sending "
@@ -383,9 +394,15 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
                         raise SystemExit("  settlement succeeded, but the claim frame outcome is unknown. "
                                          "Inspect the pool credit before taking any recovery action.")
                     if outcomes[3].get("status") != "0x1":
-                        raise SystemExit("  settlement succeeded, but the claim frame failed. "
-                                         "The settled credit remains recoverable.")
-                if status != 1:
+                        if not allow_failed_claim:
+                            raise SystemExit("  settlement succeeded, but the claim frame failed. "
+                                             "The settled credit remains recoverable.")
+                        print("  settlement succeeded, but the claim frame failed (allowed). "
+                              "The settled credit remains recoverable.")
+                claim_reverted = (
+                    tail is not None and allow_failed_claim
+                    and len(outcomes) > 3 and outcomes[3].get("status") != "0x1")
+                if status != 1 and not claim_reverted:
                     raise SystemExit(f'  tx reverted (status {rcpt.get("status")}) after successful '
                                      "settlement; inspect frame receipts")
             elif status != 1:
@@ -427,6 +444,7 @@ def main():
     spend_key_override = None
     root_slot_override = None
     flip_proof = "--flip-proof" in sys.argv
+    allow_failed_claim = "--allow-failed-claim" in sys.argv
     if "--note" in sys.argv:
         i = sys.argv.index("--note")
         if i + 1 >= len(sys.argv):
@@ -478,6 +496,8 @@ def main():
     if op in ("transfer", "withdraw"):
         if sender_override is None:
             sender_override = pool
+    if allow_failed_claim and op != "withdraw":
+        raise SystemExit("--allow-failed-claim is only valid on withdraw")
 
     def spend_setup(op_name):
         """Protocol nonces, validation data, and recent-root tuple for a
@@ -540,7 +560,7 @@ def main():
                        dry_run=dry, sender_override=sender_override,
                        max_fee_override=max_fee_override, max_priority_override=max_priority_override,
                        settle_gas_override=settle_gas_override, save_raw=save_raw,
-                       frame0_data=proof_bytes(e))
+                       frame0_data=proof_bytes(e), allow_failed_claim=allow_failed_claim)
     else:
         raise SystemExit(f"unknown op {op}")
 
