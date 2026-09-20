@@ -6,7 +6,8 @@
     "label": "single-party disposable testbed"
   },
   "profile": {
-    "wire_profile": "eip8272-canonical-frame",
+    "wire_profile": "recipient-pull-v1",
+    "pool_profile": "recipient-pull-v1",
     "eip_8250_merge": "f3079a09e8c606afcb0e5e1a309ff228b88dc067",
     "eip_8272_carrier": "canonical-verifier-frame",
     "eip_8272_pin": "824cbc0b0e",
@@ -23,6 +24,8 @@
     "hegota_profile_2_budget": 1048576,
     "settle_frame_gas": 1400000,
     "settle_frame_state_gas": 550000,
+    "claim_frame_gas": 100000,
+    "claim_frame_state_gas": 183600,
     "conservative_settle_bound": 1231926,
     "conservative_settle_state_bound": 489600
   },
@@ -32,12 +35,12 @@
     "build/spend_js/spend.wasm": "4935c11e3be2309af2b6bf6fa9821eaaaf41ffd481716483d0f28b73ed363a2b",
     "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
     "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
-    "contracts/src/ShieldedPoolLogic.sol": "0b943a55ba28195fdfdd85d1b49b4e520ccecdf6ac55d5edbe737c51924f1969",
-    "devnet/ShieldedPoolDispatcher.yul": "19d0111eb9883011d316e60797c528006ef2b33d05579c21b755347aa8dc12f9",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "982c053206f2ceefeb69c094f27a6f8a54c84ee2a11e731a5c201fc880d03c86",
+    "contracts/src/ShieldedPoolLogic.sol": "7c05d484877146222ff1250e625ecb1d819c7aa409091a1affc41443f762cd5b",
+    "devnet/ShieldedPoolDispatcher.yul": "7b2a97c19eb7348dd6dfb60f1bef6eba7f255af647b7adf47a4bd7a20e550be9",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "1ed5d7838aab55ea2e86a93079dba752546b6ffb82ca1f2404cc27357b3d07f2",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "d7dbc6bb652996762677e443095cecf0d30f28d0df71ce5871bf562bc553dad3",
-    "devnet/pool_frametx.py": "da4bf4394ae760058a126ee2083f473b5d1ca40c7a7e3eb8ee4559fb6fcfc280",
-    "tooling/check_gas_profile.py": "f58864a52289c38c783490e63fb03a260bd6ccece2d9aef62bd5dfe52aa8e0a9"
+    "devnet/gas_profile.py": "49f5a3964ea7f64b103d3e3f71940dba41799628caca90c6997e8683cfed7043",
+    "devnet/pool_frametx.py": "e2397bcbc953488ec072b20443a44f937b3d8afe8d8ef35303aa674d0f6854f0",
+    "tooling/check_gas_profile.py": "190b9a52db02ffd64f932ee1c23c7c4a08a67c2f7c7f5a8c269393b1a9ed00ec"
   }
 }

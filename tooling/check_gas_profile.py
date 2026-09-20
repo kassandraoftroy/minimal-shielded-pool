@@ -29,6 +29,7 @@ from gas_profile import (  # noqa: E402
     HEGOTA_TESTNET_MAX_VERIFY_GAS,
     KEYED_NONCE_FIRST_USE_STATE_GAS,
     MAX_VERIFY_STATE_GAS,
+    POOL_PROFILE,
     RECENT_ROOT_FRAME_GAS,
     REQUIRED_VERIFY_BUDGET,
     SETTLE_FRAME_GAS,
@@ -131,12 +132,14 @@ def main():
     # Keep the checked-in deployment record aligned as well. The live runner
     # rewrites these fields from the activation manifest after deployment.
     cfg = json.loads((ROOT / "devnet" / "deploy_config.json").read_text())
-    assert cfg["profile"] == "eip8272-canonical-frame"
+    assert cfg["profile"] == POOL_PROFILE
     assert cfg["recentRootGas"] == RECENT_ROOT_FRAME_GAS
     assert cfg["verifyGas"] == VERIFY_FRAME_GAS
     assert cfg["verifyStateGas"] == VERIFY_FRAME_STATE_GAS
     assert cfg["settleGas"] == SETTLE_FRAME_GAS
     assert cfg["settleStateGas"] == SETTLE_FRAME_STATE_GAS
+    assert cfg["claimGas"] == CLAIM_FRAME_GAS
+    assert cfg["claimStateGas"] == CLAIM_FRAME_STATE_GAS
 
     print(json.dumps({
         "verify": {

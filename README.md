@@ -20,7 +20,7 @@ The circuit enforces membership for positive inputs, value conservation,
 outputs, two position-specific zero-value sinks, a nonzero `uint160`
 authorizer, and the transfer/withdrawal recipient shape.
 
-Each spend has exactly four frames:
+Private transfers use three frames. Public withdrawals add a fourth:
 
 1. `VERIFY(0x…8272, tuple)`, EIP-8272's canonical recent-root verifier. The
    protocol runs `RECENT_ROOT_CODE` over the 72-byte tuple before any pool code
@@ -28,9 +28,10 @@ Each spend has exactly four frames:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
-4. `SENDER(pool, claimWithdrawal(recipient))`. `recipient == 0` is a no-op so
-   internal transfers share this grammar. A nonzero recipient is paid in the
-   same transaction. Standalone `claimWithdrawal` remains for leftover credits.
+4. When `publicAmount` is nonzero, `DEFAULT(pool, claimWithdrawal(recipient))`.
+   Anyone can call `claimWithdrawal`, so this frame does not use `SENDER`.
+   If it fails, the credit created by settlement remains and can be claimed
+   later. Standalone `claimWithdrawal` remains for leftover credits.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including
@@ -48,7 +49,7 @@ timestamp reconstruction is rejected.
 Settlement never publishes a root or calls a recipient. It rolls to a fresh
 Merkle epoch before inserting outputs when capacity is insufficient. The two
 zero sinks consume no capacity, so an exit remains possible at a full tree.
-Withdrawals are pull credits claimed by the fourth frame. Root publication is
+Withdrawals are pull credits claimed by the optional fourth frame. Root publication is
 a separate permissionless call that reads only the active or finalized root
 stored by the pool.
 
@@ -83,7 +84,7 @@ nested them, so the correction confirms the shape rather than changing it. Every
 spend gives its proof frame `195,840` state gas to create its two nullifier
 keys, and leads with a `30,000`-gas recent-root verifier frame that counts
 toward the public mempool's verify budget. The gas schedule is recorded in the
-testbed activation manifest, wire profile `eip8272-canonical-frame`.
+testbed activation manifest, wire profile `recipient-pull-v1`.
 
 This profile targets the chain 8141 testnet's next re-genesis, which moves the
 node to those revisions; the chain launched on September 3 runs the older

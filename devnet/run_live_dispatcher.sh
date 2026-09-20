@@ -166,6 +166,9 @@ if "settle_frame_state_gas" in manifest:
 # incomplete record.
 if "recent_root_frame_gas" in manifest:
     cfg["recentRootGas"] = manifest["recent_root_frame_gas"]
+if "claim_frame_gas" in manifest:
+    cfg["claimGas"] = manifest["claim_frame_gas"]
+    cfg["claimStateGas"] = manifest["claim_frame_state_gas"]
 with open("deploy_config.json", "w") as f:
     json.dump(cfg, f, indent=1)
 print("wrote deploy_config.json")
@@ -201,17 +204,21 @@ PY
 
   RECIPIENT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recipient"])' "$SMOKE_OUTPUT")
   PUBLIC_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw"]["public_amount"])' "$SMOKE_OUTPUT")
+  CREDIT_BEFORE=$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")
   BEFORE=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
-  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$PUBLIC_AMOUNT wei)"
+  EXPECTED=$(python3 -c 'print(int(sys.argv[1])+int(sys.argv[2]))' "$CREDIT_BEFORE" "$PUBLIC_AMOUNT")
+  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$EXPECTED wei including prior credit $CREDIT_BEFORE)"
   python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
   AFTER=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
+  CREDIT_AFTER=$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")
   # Balances outgrow bash's 64-bit arithmetic after a few ETH, so subtract in python.
-  # The payout is judged as a balance delta, not as "nonzero afterwards": the fixture's
-  # recipient is a fixed address, so on a chain that has seen one successful run it is
-  # already funded and a reverted claim would otherwise pass.
+  # claimWithdrawal pays all credit already held for the recipient, not just this
+  # spend's publicAmount.
   PAID=$(python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$AFTER" "$BEFORE")
-  [[ $PAID == "$PUBLIC_AMOUNT" ]] || {
-    echo "withdraw paid $PAID wei to the recipient, expected $PUBLIC_AMOUNT" >&2; exit 1; }
-  echo "    recipient +$PAID wei ($BEFORE -> $AFTER)"
+  [[ $PAID == "$EXPECTED" ]] || {
+    echo "withdraw paid $PAID wei to the recipient, expected $EXPECTED" >&2; exit 1; }
+  [[ $CREDIT_AFTER == 0 || $CREDIT_AFTER == 0x0 ]] || {
+    echo "recipient credit remaining after claim: $CREDIT_AFTER" >&2; exit 1; }
+  echo "    recipient +$PAID wei ($BEFORE -> $AFTER); credit $CREDIT_BEFORE -> 0"
   echo "==> spends settled"
 fi
