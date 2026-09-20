@@ -169,6 +169,10 @@ if "recent_root_frame_gas" in manifest:
 if "claim_frame_gas" in manifest:
     cfg["claimGas"] = manifest["claim_frame_gas"]
     cfg["claimStateGas"] = manifest["claim_frame_state_gas"]
+if "recipient_frame_max_gas" in manifest:
+    cfg["recipientFrameMaxGas"] = manifest["recipient_frame_max_gas"]
+    cfg["recipientFrameMaxStateGas"] = manifest["recipient_frame_max_state_gas"]
+    cfg["recipientFrameMaxData"] = manifest["recipient_frame_max_data"]
 with open("deploy_config.json", "w") as f:
     json.dump(cfg, f, indent=1)
 print("wrote deploy_config.json")

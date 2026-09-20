@@ -153,7 +153,8 @@ object "ShieldedPoolDispatcher" {
 
             function verifyFrameApprove() {
                 // Three frames for private transfers; four when publicAmount is
-                // nonzero. The fourth frame is never SENDER: an exact DEFAULT claim.
+                // nonzero. The fourth frame is never SENDER: exact DEFAULT claim
+                // or a capped DEFAULT call to settle.recipient.
                 if iszero(eq(txParam(0x02), address())) { fail(errShape()) }
                 if iszero(eq(txParam(0x09), add(3, iszero(iszero(frameDataLoad(2, 260)))))) { fail(errShape()) }
                 if iszero(eq(txParam(0x0A), 1)) { fail(errShape()) }
@@ -212,19 +213,34 @@ object "ShieldedPoolDispatcher" {
                 if frameParam(2, 0x08) { fail(errShape()) }
                 if iszero(eq(shr(224, frameDataLoad(2, 0)), 0x921fcac7)) { fail(errShape()) }
 
-                // Frame 3: DEFAULT claimWithdrawal. Present only for withdrawals.
-                // Anyone can call claimWithdrawal, so this frame does not need
-                // SENDER authority. Settlement remains the only SENDER frame.
+                // Frame 3: never SENDER. Present only for withdrawals. Either
+                // an exact DEFAULT claimWithdrawal to the pool, or a capped
+                // DEFAULT call to settle.recipient. Settlement remains the
+                // only SENDER frame. A failed recipient call does not undo
+                // the credit created by frame 2.
                 if frameDataLoad(2, 260) {
-                    if iszero(eq(frameParam(3, 0x00), address())) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x01), 100000)) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x09), 183600)) { fail(errShape()) }
                     if frameParam(3, 0x02) { fail(errShape()) }
                     if frameParam(3, 0x03) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x04), 36)) { fail(errShape()) }
                     if frameParam(3, 0x08) { fail(errShape()) }
-                    if iszero(eq(shr(224, frameDataLoad(3, 0)), 0xa3066aab)) { fail(errShape()) }
-                    if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 324))) { fail(errShape()) }
+                    switch eq(frameParam(3, 0x00), address())
+                    case 1 {
+                        // Ordinary ETH delivery: one exact permissionless claim.
+                        if iszero(eq(frameParam(3, 0x01), 100000)) { fail(errShape()) }
+                        if iszero(eq(frameParam(3, 0x09), 183600)) { fail(errShape()) }
+                        if iszero(eq(frameParam(3, 0x04), 36)) { fail(errShape()) }
+                        if iszero(eq(shr(224, frameDataLoad(3, 0)), 0xa3066aab)) { fail(errShape()) }
+                        if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 324))) { fail(errShape()) }
+                    }
+                    default {
+                        // The proof recipient owns authentication, settlement
+                        // checking, claim-self, and action rollback. Caps are
+                        // immutable maxima; wallets must declare measured gas,
+                        // not these ceilings. Over-declared fee stays in the pool.
+                        if iszero(eq(frameParam(3, 0x00), frameDataLoad(2, 324))) { fail(errShape()) }
+                        if gt(frameParam(3, 0x01), 5000000) { fail(errShape()) }
+                        if gt(frameParam(3, 0x09), 5000000) { fail(errShape()) }
+                        if gt(frameParam(3, 0x04), 32768) { fail(errShape()) }
+                    }
                 }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.

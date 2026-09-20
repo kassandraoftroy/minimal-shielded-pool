@@ -14,6 +14,9 @@ from gas_profile import (  # noqa: E402
     CLAIM_FRAME_STATE_GAS,
     POOL_PROFILE,
     RECENT_ROOT_FRAME_GAS,
+    RECIPIENT_FRAME_MAX_DATA,
+    RECIPIENT_FRAME_MAX_GAS,
+    RECIPIENT_FRAME_MAX_STATE_GAS,
     SETTLE_FRAME_GAS,
     SETTLE_FRAME_STATE_GAS,
     VERIFY_FRAME_GAS,
@@ -63,8 +66,21 @@ PROFILES = {
         "settle_frame_state_gas": SETTLE_FRAME_STATE_GAS,
     },
     # Withdrawals add an exact DEFAULT claim frame. A 3-frame eip8272-canonical-frame
-    # pool is not compatible with this wallet.
+    # pool is not compatible with this wallet. Kept listed so a v1 dispatcher is
+    # not treated as the current recipient-call profile.
     "recipient-pull-v1": {
+        "recent_root_frame_gas": RECENT_ROOT_FRAME_GAS,
+        "verify_frame_gas": VERIFY_FRAME_GAS,
+        "signature_gas": 2_800,
+        "verify_frame_state_gas": VERIFY_FRAME_STATE_GAS,
+        "settle_frame_gas": SETTLE_FRAME_GAS,
+        "settle_frame_state_gas": SETTLE_FRAME_STATE_GAS,
+        "pool_profile": "recipient-pull-v1",
+        "claim_frame_gas": CLAIM_FRAME_GAS,
+        "claim_frame_state_gas": CLAIM_FRAME_STATE_GAS,
+    },
+    # Withdrawals: exact DEFAULT claim, or a capped DEFAULT call to settle.recipient.
+    "recipient-pull-v2": {
         "recent_root_frame_gas": RECENT_ROOT_FRAME_GAS,
         "verify_frame_gas": VERIFY_FRAME_GAS,
         "signature_gas": 2_800,
@@ -74,6 +90,9 @@ PROFILES = {
         "pool_profile": POOL_PROFILE,
         "claim_frame_gas": CLAIM_FRAME_GAS,
         "claim_frame_state_gas": CLAIM_FRAME_STATE_GAS,
+        "recipient_frame_max_gas": RECIPIENT_FRAME_MAX_GAS,
+        "recipient_frame_max_state_gas": RECIPIENT_FRAME_MAX_STATE_GAS,
+        "recipient_frame_max_data": RECIPIENT_FRAME_MAX_DATA,
     },
 }
 
@@ -106,6 +125,18 @@ def main():
         for field in ("pool_profile", "claim_frame_gas", "claim_frame_state_gas"):
             if profile.get(field) != expected[field]:
                 raise SystemExit(f"{field} does not match the immutable dispatcher profile")
+        if "recipient_frame_max_gas" in expected:
+            for field in (
+                    "recipient_frame_max_gas",
+                    "recipient_frame_max_state_gas",
+                    "recipient_frame_max_data"):
+                if profile.get(field) != expected[field]:
+                    raise SystemExit(f"{field} does not match the immutable dispatcher profile")
+        elif any(field in profile for field in (
+                "recipient_frame_max_gas",
+                "recipient_frame_max_state_gas",
+                "recipient_frame_max_data")):
+            raise SystemExit("profile declares recipient-call caps it does not admit")
     # A profile with a recent-root verifier frame budgets it in the prefix.
     recent_root_gas = profile.get("recent_root_frame_gas", 0)
     if recent_root_gas != expected.get("recent_root_frame_gas", 0):
@@ -120,7 +151,8 @@ def main():
     if required > profile["hegota_profile_2_budget"]:
         raise SystemExit("transaction exceeds the configured Hegota Profile 2 budget")
     if profile["wire_profile"] in (
-            "eip8250-state-gas-pre-8272-frame", "eip8272-canonical-frame", "recipient-pull-v1"):
+            "eip8250-state-gas-pre-8272-frame", "eip8272-canonical-frame",
+            "recipient-pull-v1", "recipient-pull-v2"):
         historical_verify_gas = profile["pre_pr_12279_max_observed_verify_execution_gas"]
         # The field is required even before a measurement exists. Its explicit
         # null records the remaining live-test gap; omitting it must not look

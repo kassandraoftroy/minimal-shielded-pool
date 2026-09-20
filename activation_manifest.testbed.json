@@ -6,8 +6,8 @@
     "label": "single-party disposable testbed"
   },
   "profile": {
-    "wire_profile": "recipient-pull-v1",
-    "pool_profile": "recipient-pull-v1",
+    "wire_profile": "recipient-pull-v2",
+    "pool_profile": "recipient-pull-v2",
     "eip_8250_merge": "f3079a09e8c606afcb0e5e1a309ff228b88dc067",
     "eip_8272_carrier": "canonical-verifier-frame",
     "eip_8272_pin": "824cbc0b0e",
@@ -26,6 +26,9 @@
     "settle_frame_state_gas": 550000,
     "claim_frame_gas": 100000,
     "claim_frame_state_gas": 183600,
+    "recipient_frame_max_gas": 5000000,
+    "recipient_frame_max_state_gas": 5000000,
+    "recipient_frame_max_data": 32768,
     "conservative_settle_bound": 1231926,
     "conservative_settle_state_bound": 489600
   },
@@ -36,11 +39,11 @@
     "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
     "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
     "contracts/src/ShieldedPoolLogic.sol": "7c05d484877146222ff1250e625ecb1d819c7aa409091a1affc41443f762cd5b",
-    "devnet/ShieldedPoolDispatcher.yul": "7b2a97c19eb7348dd6dfb60f1bef6eba7f255af647b7adf47a4bd7a20e550be9",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "1ed5d7838aab55ea2e86a93079dba752546b6ffb82ca1f2404cc27357b3d07f2",
+    "devnet/ShieldedPoolDispatcher.yul": "0f58115f99873f3f406a964862a10edb05946de47a3182250d23fb10d791b1b9",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "77ea6d18256c19970f3376f9357268003a107234d4459231ba8e817e9650bf3b",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "49f5a3964ea7f64b103d3e3f71940dba41799628caca90c6997e8683cfed7043",
-    "devnet/pool_frametx.py": "e2397bcbc953488ec072b20443a44f937b3d8afe8d8ef35303aa674d0f6854f0",
-    "tooling/check_gas_profile.py": "190b9a52db02ffd64f932ee1c23c7c4a08a67c2f7c7f5a8c269393b1a9ed00ec"
+    "devnet/gas_profile.py": "04ac64ca86e467662919c6c590ab5eea8d9057a0e299d3c7843b5abd8dc2f8ec",
+    "devnet/pool_frametx.py": "6a792f44d72c331937b2b6b325ac18df0d57fc0a80f75a570de349e72380686a",
+    "tooling/check_gas_profile.py": "9efeff5c16831296511f252793a1e2d3457550fd5b74edf9dd42e9943fa451e7"
   }
 }
