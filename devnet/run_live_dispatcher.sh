@@ -105,7 +105,7 @@ echo "    pool=$POOL source0=$SOURCE0 domain=$DOMAIN"
 
 echo "==> RejectEther recipient (starts rejecting so a seed claim can leave credit)"
 REJECTER=$(forge create --root "$BN" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" \
-  --gas-limit 500000 --broadcast test/DispatcherPool.t.sol:RejectEther | deployed)
+  --gas-limit 1000000 --broadcast test/DispatcherPool.t.sol:RejectEther | deployed)
 echo "    rejecter=$REJECTER"
 
 echo "==> deployment-bound proofs"
@@ -226,7 +226,7 @@ PY
   cast send "$REJECTER" 'setReject(bool)' false --rpc-url "$RPC" --private-key "$DEPLOYER_PK" \
     "${PRICE[@]}" --gas-limit 100000 >/dev/null
   BEFORE=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
-  EXPECTED=$(python3 -c 'print(int(sys.argv[1])+int(sys.argv[2]))' "$CREDIT_BEFORE" "$PUBLIC_AMOUNT")
+  EXPECTED=$(python3 -c 'import sys; print(int(sys.argv[1]) + int(sys.argv[2]))' "$CREDIT_BEFORE" "$PUBLIC_AMOUNT")
   echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$EXPECTED wei including prior credit $CREDIT_BEFORE)"
   python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
   AFTER=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
