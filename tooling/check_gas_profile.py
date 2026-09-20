@@ -31,6 +31,9 @@ from gas_profile import (  # noqa: E402
     MAX_VERIFY_STATE_GAS,
     POOL_PROFILE,
     RECENT_ROOT_FRAME_GAS,
+    RECIPIENT_FRAME_MAX_DATA,
+    RECIPIENT_FRAME_MAX_GAS,
+    RECIPIENT_FRAME_MAX_STATE_GAS,
     REQUIRED_VERIFY_BUDGET,
     SETTLE_FRAME_GAS,
     SETTLE_FRAME_STATE_GAS,
@@ -125,6 +128,9 @@ def main():
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x01), {CLAIM_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x09), {CLAIM_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x01), {RECIPIENT_FRAME_MAX_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x09), {RECIPIENT_FRAME_MAX_STATE_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x04), {RECIPIENT_FRAME_MAX_DATA}) {{ fail(errShape()) }}",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"
@@ -140,6 +146,9 @@ def main():
     assert cfg["settleStateGas"] == SETTLE_FRAME_STATE_GAS
     assert cfg["claimGas"] == CLAIM_FRAME_GAS
     assert cfg["claimStateGas"] == CLAIM_FRAME_STATE_GAS
+    assert cfg["recipientFrameMaxGas"] == RECIPIENT_FRAME_MAX_GAS
+    assert cfg["recipientFrameMaxStateGas"] == RECIPIENT_FRAME_MAX_STATE_GAS
+    assert cfg["recipientFrameMaxData"] == RECIPIENT_FRAME_MAX_DATA
 
     print(json.dumps({
         "verify": {

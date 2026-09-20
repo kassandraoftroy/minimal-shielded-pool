@@ -13,6 +13,9 @@ from pool_frametx import (
     CLAIM_FRAME_STATE_GAS,
     RECENT_ROOT_ADDRESS,
     RECENT_ROOT_FRAME_GAS,
+    RECIPIENT_FRAME_MAX_DATA,
+    RECIPIENT_FRAME_MAX_GAS,
+    RECIPIENT_FRAME_MAX_STATE_GAS,
     SETTLE_FRAME_GAS,
     SETTLE_FRAME_STATE_GAS,
     SPEND_TUPLE,
@@ -22,6 +25,7 @@ from pool_frametx import (
     claim_frame,
     proof_bytes,
     spend_args,
+    withdrawal_frame,
 )
 
 HERE = Path(__file__).parent
@@ -32,7 +36,7 @@ def root_tuple(source, slot, root):
     return source + slot.to_bytes(8, "big") + root
 
 
-def _signed(entry_key):
+def _signed(entry_key, recipient_call=None):
     fixture = json.loads(FIXTURE.read_text())
     entry = copy.deepcopy(fixture[entry_key])
     entry["root_slot"] = "1"
@@ -51,7 +55,8 @@ def _signed(entry_key):
         Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
               state_limit=SETTLE_FRAME_STATE_GAS),
     ]
-    tail = claim_frame(pool, settle)
+    tail = (claim_frame(pool, settle) if recipient_call is None
+            else withdrawal_frame(pool, settle, recipient_call=recipient_call))
     if tail is not None:
         frames.append(tail)
     tx = FrameTx(
@@ -142,6 +147,30 @@ def claim_mutations(tx):
     return mutations
 
 
+def recipient_call_mutations(tx):
+    mutations = []
+
+    def add(name, fn):
+        candidate = copy.deepcopy(tx)
+        fn(candidate)
+        mutations.append((name, candidate))
+
+    add("recipient_call_mode", lambda x: setattr(x.frames[3], "mode", 2))
+    add("recipient_call_flags", lambda x: setattr(x.frames[3], "flags", 1))
+    add("recipient_call_target_pool", lambda x: setattr(x.frames[3], "target", x.sender))
+    add("recipient_call_target_other", lambda x: setattr(
+        x.frames[3], "target", x.frames[3].target ^ 1))
+    add("recipient_call_gas_above_cap", lambda x: setattr(
+        x.frames[3], "gas_limit", RECIPIENT_FRAME_MAX_GAS + 1))
+    add("recipient_call_state_gas_above_cap", lambda x: setattr(
+        x.frames[3], "state_limit", RECIPIENT_FRAME_MAX_STATE_GAS + 1))
+    add("recipient_call_value", lambda x: setattr(x.frames[3], "value", 1))
+    add("recipient_call_data_above_cap", lambda x: setattr(
+        x.frames[3], "data", x.frames[3].data + bytes(
+            RECIPIENT_FRAME_MAX_DATA + 1 - len(x.frames[3].data))))
+    return mutations
+
+
 def assert_unbound(tx, authorizer, mutations):
     original_hash = tx.sig_hash()
     original_signature = tx.signatures[0].signature
@@ -166,14 +195,28 @@ def main():
     withdraw, withdraw_auth = _signed("withdraw")
     assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT claim frame"
     assert withdraw.frames[3].mode == 0, "claim frame is DEFAULT"
+    assert withdraw.frames[3].target == withdraw.sender, "exact claim targets the pool"
     withdraw_mutations = common_mutations(withdraw) + claim_mutations(withdraw)
     assert_unbound(withdraw, withdraw_auth, withdraw_mutations)
+
+    call_data = bytes.fromhex("aabbccdd")
+    recipient_tx, recipient_auth = _signed(
+        "withdraw", recipient_call=(call_data, 400_000, 400_000))
+    assert len(recipient_tx.frames) == 4, "recipient-call withdrawals keep four frames"
+    assert recipient_tx.frames[3].mode == 0, "recipient-call frame is DEFAULT"
+    assert recipient_tx.frames[3].target != recipient_tx.sender, \
+        "recipient-call must not target the pool"
+    assert recipient_tx.frames[3].data == call_data
+    recipient_mutations = common_mutations(recipient_tx) + recipient_call_mutations(recipient_tx)
+    assert_unbound(recipient_tx, recipient_auth, recipient_mutations)
 
     print(json.dumps({"transfer_frames": 3,
                       "withdraw_frames": 4,
                       "claim_mode": 0,
+                      "recipient_call_mode": 0,
                       "bound_mutations_transfer": len(transfer_mutations),
                       "bound_mutations_withdraw": len(withdraw_mutations),
+                      "bound_mutations_recipient_call": len(recipient_mutations),
                       "raw_signature_elision_only": True,
                       "proof_bytes_bound": True,
                       "settlement_words_bound": 12}, sort_keys=True))

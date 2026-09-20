@@ -11,16 +11,24 @@ verify budget.
 # dispatcher like every other budget: unpinned, it is the pool's money.
 RECENT_ROOT_FRAME_GAS = 30_000
 RECENT_ROOT_TUPLE_BYTES = 72
-POOL_PROFILE = "recipient-pull-v1"
+POOL_PROFILE = "recipient-pull-v2"
 VERIFY_FRAME_GAS = 320_000
 SETTLE_FRAME_GAS = 1_400_000
 SETTLE_FRAME_STATE_GAS = 550_000
-# Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal. On native
-# ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716 execution
-# gas and 183,600 state gas. Boundary tests lower each limit by one.
+# Frame 3 of a public withdrawal, pool-target branch: exact DEFAULT
+# claimWithdrawal. On native ethrex commit 247e2dd2, a DEFAULT claim to a new
+# EOA used 14,716 execution gas and 183,600 state gas. Boundary tests lower
+# each limit by one.
 CLAIM_FRAME_GAS = 100_000
 CLAIM_FRAME_STATE_GAS = 183_600
 CLAIM_WITHDRAWAL_CALLDATA = 36
+# Frame 3 recipient-target branch: DEFAULT call to settle.recipient. These are
+# immutable maxima, not defaults. A wallet that declares the cap forces a
+# join-split fee covering that max_cost; unused fee - actual_gas_cost stays in
+# the pool and is not claimable.
+RECIPIENT_FRAME_MAX_GAS = 5_000_000
+RECIPIENT_FRAME_MAX_STATE_GAS = 5_000_000
+RECIPIENT_FRAME_MAX_DATA = 32_768
 
 STATE_BYTES_PER_STORAGE_SET = 64
 CPSB = 1_530

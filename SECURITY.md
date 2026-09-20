@@ -41,7 +41,12 @@ existing production blocker: approval can succeed and settlement can still fail
 after the nullifier keys are consumed, so the promised outputs are not created.
 A failed claim frame does not undo settlement. If the recipient reverts or the
 claim runs out of gas, the credit created by frame 2 remains and can be claimed
-later. The implementation does not allow caller-chosen post-approval calls. Its
+later. The fourth frame may be an exact DEFAULT claim or a capped DEFAULT call
+to `settle.recipient`. Account code never runs with the pool's authority: the
+recipient authenticates itself, claims, then acts. Caps are 5M execution / 5M
+state / 32KB calldata. Wallets must not over-declare; unused
+`fee - actual_gas_cost` stays in the pool as surplus, not as withdrawal credit.
+The implementation does not allow a third-party target or a SENDER tail. Its
 required Poseidon operations use fixed-code
 static calls to two immutable, deployment-verified libraries. The 2M SENDER
 constant must be re-proved before every gas repricing fork.
@@ -108,7 +113,8 @@ direct-call rejection, valid proof verification, coordinate aliases, infinity,
 and authorizer mutation. The circuit generator rejects same-note inputs,
 duplicate outputs, dummy-only spends, wrong sinks, sink-valued positive outputs,
 zero authorizers, and recipient mismatches. The envelope vector mutates 48
-signed transfer components and 56 signed withdrawal components.
+signed transfer components, 56 signed exact-claim withdrawal components, and
+56 signed recipient-call withdrawal components.
 
 The gas derivation is recorded in
 [`devnet/vectors/2026-08-14-tight-gas-profile.md`](devnet/vectors/2026-08-14-tight-gas-profile.md).

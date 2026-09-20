@@ -9,9 +9,15 @@ Spends use one exact grammar:
   VERIFY(0x…8272, tuple) -> VERIFY(pool, proof, execution+payment)
     -> SENDER(pool, settle(Spend))
 
-Public withdrawals append DEFAULT(pool, claimWithdrawal(recipient)). Private
-transfers stay at three frames. The claim target and `who` are read from the
-signed settle calldata so they cannot disagree with the proof.
+Public withdrawals append a fourth DEFAULT frame. The default is
+DEFAULT(pool, claimWithdrawal(recipient)). `--recipient-call 0x...` instead
+builds DEFAULT(settle.recipient, data) under the profile caps. The claim
+target, recipient-call target, and `who` are read from the signed settle
+calldata so they cannot disagree with the proof.
+
+Wallets must declare measured recipient-call gas, not the 5M/5M/32KB
+protocol maxima. The join-split fee covers this tx's declared max_cost;
+unused `fee - actual_gas_cost` stays in the pool and is not claimable.
 
 The leading frame is EIP-8272's canonical recent-root verifier: the predeploy checks the
 `(source_id, slot, root)` tuple in its data and reverts otherwise. The pool is sender and
@@ -24,6 +30,10 @@ Usage (append --dry-run to simulate without submitting):
   pool_frametx.py <rpc> config.json fixture.json shield   <funded-private-key>
   pool_frametx.py <rpc> config.json fixture.json transfer <unused>
   pool_frametx.py <rpc> config.json fixture.json withdraw <unused>
+
+  withdraw --recipient-call 0x... --recipient-gas N --recipient-state-gas N
+    replaces the exact claim with a DEFAULT call to settle.recipient. Gas
+    limits are mandatory; do not default to the protocol cap.
 
 Spend signing keys come from the fixture's proof-bound
 `authorizer_private_key`. `--root-slot N` supplies the consensus slot in which
@@ -45,6 +55,9 @@ from gas_profile import (
     CLAIM_FRAME_STATE_GAS,
     POOL_PROFILE,
     RECENT_ROOT_FRAME_GAS,
+    RECIPIENT_FRAME_MAX_DATA,
+    RECIPIENT_FRAME_MAX_GAS,
+    RECIPIENT_FRAME_MAX_STATE_GAS,
     SETTLE_FRAME_GAS,
     SETTLE_FRAME_STATE_GAS,
     VERIFY_FRAME_GAS,
@@ -192,11 +205,16 @@ def recent_root_tuple(url, cfg, e):
     return source_id + slot.to_bytes(8, "big") + root
 
 
-def claim_frame(pool, settle_calldata):
-    """Derive the optional fourth frame from the signed settlement tuple."""
+def withdrawal_frame(pool, settle_calldata, recipient_call=None):
+    """Derive the optional fourth frame from the signed settlement tuple.
+
+    Default is exact DEFAULT claimWithdrawal on the pool. `recipient_call` is
+    `(data, execution_gas, state_gas)` for a DEFAULT call to settle.recipient.
+    Declared gas must be supplied explicitly; the protocol cap is not a default.
+    """
     selector = _keccak(f"settle({SPEND_TUPLE})".encode())[:4]
     if len(settle_calldata) != 4 + 12 * 32 or settle_calldata[:4] != selector:
-        raise ValueError("claim frame requires canonical settle(Spend) calldata")
+        raise ValueError("withdrawal frame requires canonical settle(Spend) calldata")
     amount = int.from_bytes(settle_calldata[4 + 8 * 32:4 + 9 * 32], "big")
     recipient = int.from_bytes(settle_calldata[4 + 10 * 32:4 + 11 * 32], "big")
     if not 0 < pool < 1 << 160 or recipient >= 1 << 160 or amount >= 1 << 128:
@@ -204,18 +222,42 @@ def claim_frame(pool, settle_calldata):
     if (amount == 0) != (recipient == 0):
         raise ValueError("public amount and recipient must both be zero or both nonzero")
     if amount == 0:
+        if recipient_call is not None:
+            raise ValueError("--recipient-call requires a withdrawal (nonzero publicAmount)")
         return None
-    data = _keccak(b"claimWithdrawal(address)")[:4] + recipient.to_bytes(32, "big")
-    return Frame(0, 0, pool, CLAIM_FRAME_GAS, 0, data,
-                 state_limit=CLAIM_FRAME_STATE_GAS)
+    if recipient_call is None:
+        data = _keccak(b"claimWithdrawal(address)")[:4] + recipient.to_bytes(32, "big")
+        return Frame(0, 0, pool, CLAIM_FRAME_GAS, 0, data,
+                     state_limit=CLAIM_FRAME_STATE_GAS)
+    data, gas, state_gas = recipient_call
+    if recipient == pool:
+        raise ValueError("recipient-call target would be the pool; use the exact claim path")
+    if not isinstance(data, (bytes, bytearray)):
+        raise ValueError("recipient-call data must be bytes")
+    if len(data) > RECIPIENT_FRAME_MAX_DATA:
+        raise ValueError(f"recipient-call data exceeds {RECIPIENT_FRAME_MAX_DATA} bytes")
+    if gas < 1 or state_gas < 1:
+        raise ValueError("recipient-call requires explicit positive gas limits; "
+                         "do not default to the protocol cap")
+    if gas > RECIPIENT_FRAME_MAX_GAS:
+        raise ValueError(f"recipient-call execution gas exceeds {RECIPIENT_FRAME_MAX_GAS}")
+    if state_gas > RECIPIENT_FRAME_MAX_STATE_GAS:
+        raise ValueError(f"recipient-call state gas exceeds {RECIPIENT_FRAME_MAX_STATE_GAS}")
+    return Frame(0, 0, recipient, gas, 0, bytes(data), state_limit=state_gas)
+
+
+def claim_frame(pool, settle_calldata):
+    """Exact DEFAULT claimWithdrawal fourth frame."""
+    return withdrawal_frame(pool, settle_calldata)
 
 
 def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_verify=None,
                    recent_root=None, dry_run=False, sender_override=None,
                    max_fee_override=None, max_priority_override=None,
-                   settle_gas_override=None, save_raw=None, frame0_data=b""):
+                   settle_gas_override=None, save_raw=None, frame0_data=b"",
+                   recipient_call=None):
     try:
-        tail = claim_frame(pool, calldata) if proof_verify else None
+        tail = withdrawal_frame(pool, calldata, recipient_call=recipient_call) if proof_verify else None
     except ValueError as error:
         raise SystemExit(str(error)) from None
     signer = int.from_bytes(pk.public_key.to_canonical_address(), "big")
@@ -404,7 +446,11 @@ def main():
         if cfg.get("profile") != POOL_PROFILE:
             raise SystemExit(f"spends require profile={POOL_PROFILE}; use a fresh deployment of this profile")
         if cfg.get("claimGas") != CLAIM_FRAME_GAS or cfg.get("claimStateGas") != CLAIM_FRAME_STATE_GAS:
-            raise SystemExit("spends require claimGas/claimStateGas matching recipient-pull-v1")
+            raise SystemExit("spends require claimGas/claimStateGas matching recipient-pull-v2")
+        if (cfg.get("recipientFrameMaxGas") != RECIPIENT_FRAME_MAX_GAS
+                or cfg.get("recipientFrameMaxStateGas") != RECIPIENT_FRAME_MAX_STATE_GAS
+                or cfg.get("recipientFrameMaxData") != RECIPIENT_FRAME_MAX_DATA):
+            raise SystemExit("spends require recipient-call caps matching recipient-pull-v2")
     pk = keys.PrivateKey(bytes.fromhex(priv.removeprefix("0x")))
     dry = "--dry-run" in sys.argv
     sender_override = None
@@ -427,6 +473,41 @@ def main():
     spend_key_override = None
     root_slot_override = None
     flip_proof = "--flip-proof" in sys.argv
+    recipient_call = None
+    recipient_call_hex = None
+    recipient_gas = None
+    recipient_state_gas = None
+    if "--recipient-call" in sys.argv:
+        i = sys.argv.index("--recipient-call")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--recipient-call requires calldata (0x...)")
+        recipient_call_hex = sys.argv[i + 1]
+    if "--recipient-gas" in sys.argv:
+        i = sys.argv.index("--recipient-gas")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--recipient-gas requires an execution-gas value")
+        recipient_gas = int(sys.argv[i + 1], 0)
+    if "--recipient-state-gas" in sys.argv:
+        i = sys.argv.index("--recipient-state-gas")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--recipient-state-gas requires a state-gas value")
+        recipient_state_gas = int(sys.argv[i + 1], 0)
+    if recipient_call_hex is not None:
+        if recipient_gas is None or recipient_state_gas is None:
+            raise SystemExit(
+                "--recipient-call requires --recipient-gas and --recipient-state-gas. "
+                "Do not default to the 5M/5M protocol cap: unused fee stays in the pool "
+                "and is not claimable (fee - actual_gas_cost).")
+        try:
+            recipient_call = (
+                bytes.fromhex(recipient_call_hex.removeprefix("0x")),
+                recipient_gas,
+                recipient_state_gas,
+            )
+        except ValueError:
+            raise SystemExit("invalid --recipient-call hex") from None
+    elif recipient_gas is not None or recipient_state_gas is not None:
+        raise SystemExit("--recipient-gas/--recipient-state-gas require --recipient-call")
     if "--note" in sys.argv:
         i = sys.argv.index("--note")
         if i + 1 >= len(sys.argv):
@@ -520,6 +601,8 @@ def main():
         print(f"shield {value} wei via frame tx -> pool {cfg['pool']}")
         build_and_send(url, pk, pool, value, calldata, dry_run=dry)
     elif op == "transfer":
+        if recipient_call is not None:
+            raise SystemExit("--recipient-call is only valid on withdraw")
         e, protocol_nonces, verify, refs, auth_pk = spend_setup("transfer")
         if nonce_keys_override is not None:
             protocol_nonces = nonce_keys_override
@@ -536,11 +619,14 @@ def main():
             protocol_nonces = nonce_keys_override
         calldata = cast_calldata(f"settle({SPEND_TUPLE})", spend_args(e))
         print(f"join-split withdraw via frame tx (pool {cfg['pool']} self-pays)")
+        if recipient_call is not None:
+            print("  recipient-call: declare measured gas, not the 5M/5M/32KB cap; "
+                  "unused fee stays in the pool and is not claimable")
         build_and_send(url, auth_pk, pool, 0, calldata, protocol_nonces, verify, refs,
                        dry_run=dry, sender_override=sender_override,
                        max_fee_override=max_fee_override, max_priority_override=max_priority_override,
                        settle_gas_override=settle_gas_override, save_raw=save_raw,
-                       frame0_data=proof_bytes(e))
+                       frame0_data=proof_bytes(e), recipient_call=recipient_call)
     else:
         raise SystemExit(f"unknown op {op}")
 

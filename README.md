@@ -28,10 +28,13 @@ Private transfers use three frames. Public withdrawals add a fourth:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
-4. When `publicAmount` is nonzero, `DEFAULT(pool, claimWithdrawal(recipient))`.
-   Anyone can call `claimWithdrawal`, so this frame does not use `SENDER`.
-   If it fails, the credit created by settlement remains and can be claimed
-   later. Standalone `claimWithdrawal` remains for leftover credits.
+4. When `publicAmount` is nonzero, a fourth `DEFAULT` frame. The default is
+   `DEFAULT(pool, claimWithdrawal(recipient))`. Anyone can call
+   `claimWithdrawal`, so that path does not use `SENDER`. Alternatively the
+   frame may be a capped `DEFAULT` call to `settle.recipient` (not the pool,
+   not a third address). If it fails, the credit created by settlement remains
+   and can be claimed later. Standalone `claimWithdrawal` remains for leftover
+   credits.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including
@@ -49,7 +52,8 @@ timestamp reconstruction is rejected.
 Settlement never publishes a root or calls a recipient. It rolls to a fresh
 Merkle epoch before inserting outputs when capacity is insufficient. The two
 zero sinks consume no capacity, so an exit remains possible at a full tree.
-Withdrawals are pull credits claimed by the optional fourth frame. Root publication is
+Withdrawals are pull credits. The optional fourth frame is either an exact
+claim or a capped DEFAULT call to the proof recipient. Root publication is
 a separate permissionless call that reads only the active or finalized root
 stored by the pool.
 
@@ -84,7 +88,15 @@ nested them, so the correction confirms the shape rather than changing it. Every
 spend gives its proof frame `195,840` state gas to create its two nullifier
 keys, and leads with a `30,000`-gas recent-root verifier frame that counts
 toward the public mempool's verify budget. The gas schedule is recorded in the
-testbed activation manifest, wire profile `recipient-pull-v1`.
+testbed activation manifest, wire profile `recipient-pull-v2`.
+
+The recipient-call branch admits at most 5,000,000 execution gas, 5,000,000
+state gas, and 32,768 bytes of calldata. Those are maxima, not defaults. The
+join-split `fee` must cover this transaction's declared `max_cost`, not the
+protocol cap. Unused prepaid gas refunds to the pool as payer, so
+`fee - actual_gas_cost` stays in the pool and is not claimable. Wallets must
+measure the recipient-call batch and declare that gas plus a small margin.
+Defaulting a fourth frame to the cap is a one-way overpay into the pool.
 
 This profile targets the chain 8141 testnet's next re-genesis, which moves the
 node to those revisions; the chain launched on September 3 runs the older
