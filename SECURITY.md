@@ -28,15 +28,21 @@ sponsorship or caller-selected fee recipient.
 
 The circuit selects a fresh nonzero secp256k1 authorizer. EIP-8141 validates
 its canonical low-s signature over the complete FrameTx hash. The dispatcher
-requires that recovered signer through `SIGPARAM`, one signature, one exact
-three-frame grammar, the complete two-key EIP-8250 nonce set, and the exact
-EIP-8272 tuple proven by the leading recent-root verifier frame. A copied or
-rerandomized proof cannot be rewrapped without the one-time private key.
+requires that recovered signer through `SIGPARAM`, one signature, a three-frame
+transfer grammar or a four-frame withdrawal grammar, the complete two-key
+EIP-8250 nonce set, and the exact EIP-8272 tuple proven by the leading
+recent-root verifier frame. A copied or rerandomized proof cannot be rewrapped
+without the one-time private key.
 
 Payment approval consumes the EIP-8250 keys before SENDER settlement. Safety
 therefore requires settlement to be total for every proof-valid admitted
-transaction under the pinned fork gas profile. The implementation removes
-optional post-approval calls. Its required Poseidon operations use fixed-code
+transaction under the pinned fork gas profile. Native testing has reproduced an
+existing production blocker: approval can succeed and settlement can still fail
+after the nullifier keys are consumed, so the promised outputs are not created.
+A failed claim frame does not undo settlement. If the recipient reverts or the
+claim runs out of gas, the credit created by frame 2 remains and can be claimed
+later. The implementation does not allow caller-chosen post-approval calls. Its
+required Poseidon operations use fixed-code
 static calls to two immutable, deployment-verified libraries. The 2M SENDER
 constant must be re-proved before every gas repricing fork.
 
@@ -101,8 +107,8 @@ exit, sink rules, separate publication failure/retry, pull-credit failure,
 direct-call rejection, valid proof verification, coordinate aliases, infinity,
 and authorizer mutation. The circuit generator rejects same-note inputs,
 duplicate outputs, dummy-only spends, wrong sinks, sink-valued positive outputs,
-zero authorizers, and recipient mismatches. The envelope vector mutates 42
-signed components.
+zero authorizers, and recipient mismatches. The envelope vector mutates 48
+signed transfer components and 56 signed withdrawal components.
 
 The gas derivation is recorded in
 [`devnet/vectors/2026-08-14-tight-gas-profile.md`](devnet/vectors/2026-08-14-tight-gas-profile.md).

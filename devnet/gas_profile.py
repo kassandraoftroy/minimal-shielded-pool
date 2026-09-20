@@ -11,9 +11,16 @@ verify budget.
 # dispatcher like every other budget: unpinned, it is the pool's money.
 RECENT_ROOT_FRAME_GAS = 30_000
 RECENT_ROOT_TUPLE_BYTES = 72
+POOL_PROFILE = "recipient-pull-v1"
 VERIFY_FRAME_GAS = 320_000
 SETTLE_FRAME_GAS = 1_400_000
 SETTLE_FRAME_STATE_GAS = 550_000
+# Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal. On native
+# ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716 execution
+# gas and 183,600 state gas. Boundary tests lower each limit by one.
+CLAIM_FRAME_GAS = 100_000
+CLAIM_FRAME_STATE_GAS = 183_600
+CLAIM_WITHDRAWAL_CALLDATA = 36
 
 STATE_BYTES_PER_STORAGE_SET = 64
 CPSB = 1_530

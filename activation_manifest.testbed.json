@@ -6,7 +6,8 @@
     "label": "single-party disposable testbed"
   },
   "profile": {
-    "wire_profile": "eip8272-canonical-frame",
+    "wire_profile": "recipient-pull-v1",
+    "pool_profile": "recipient-pull-v1",
     "eip_8250_merge": "f3079a09e8c606afcb0e5e1a309ff228b88dc067",
     "eip_8272_carrier": "canonical-verifier-frame",
     "eip_8272_pin": "824cbc0b0e",
@@ -23,6 +24,8 @@
     "hegota_profile_2_budget": 1048576,
     "settle_frame_gas": 1400000,
     "settle_frame_state_gas": 550000,
+    "claim_frame_gas": 100000,
+    "claim_frame_state_gas": 183600,
     "conservative_settle_bound": 1231926,
     "conservative_settle_state_bound": 489600
   },
@@ -33,11 +36,11 @@
     "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
     "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
     "contracts/src/ShieldedPoolLogic.sol": "7c05d484877146222ff1250e625ecb1d819c7aa409091a1affc41443f762cd5b",
-    "devnet/ShieldedPoolDispatcher.yul": "76a992ec44236fede8842602fc4596cfce2f5c756eba7b83e9e14459054c79eb",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "51f2bd0aba29cc5930b29396d78e7721856981344f8c76d0bb0c9dc3db36f5cf",
+    "devnet/ShieldedPoolDispatcher.yul": "7b2a97c19eb7348dd6dfb60f1bef6eba7f255af647b7adf47a4bd7a20e550be9",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "1ed5d7838aab55ea2e86a93079dba752546b6ffb82ca1f2404cc27357b3d07f2",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "6c08a105153dea85e3f111e4415cf2f53b43f471e0b87994bdf87d87e507ba19",
-    "devnet/pool_frametx.py": "477df5b8e5b253709b0a1e80c3566014cf3473860faf80a024a654974a660359",
-    "tooling/check_gas_profile.py": "f1bdf58b96e58a98c5959dbb959e0041bb87099b71a2a50e3f9af8e340cebaef"
+    "devnet/gas_profile.py": "49f5a3964ea7f64b103d3e3f71940dba41799628caca90c6997e8683cfed7043",
+    "devnet/pool_frametx.py": "93428ddcfb2d5c7f6bad2c7fc33f421d966c5aa0c5e113a9a9a993c3a975469f",
+    "tooling/check_gas_profile.py": "190b9a52db02ffd64f932ee1c23c7c4a08a67c2f7c7f5a8c269393b1a9ed00ec"
   }
 }

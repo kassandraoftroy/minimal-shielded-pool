@@ -92,8 +92,14 @@ contract RecordingRecentRoot {
 }
 
 contract RejectEther {
+    bool public reject = true;
+
+    function setReject(bool v) external {
+        reject = v;
+    }
+
     receive() external payable {
-        revert();
+        if (reject) revert();
     }
 }
 
@@ -277,6 +283,11 @@ contract DispatcherPoolTest {
         vm.expectRevert(ShieldedPoolLogic.PayoutFailed.selector);
         pool.claimWithdrawal(payable(address(rejecter)));
         require(pool.withdrawalCredit(address(rejecter)) == 2 ether, "credit was lost");
+        rejecter.setReject(false);
+        uint256 before = address(rejecter).balance;
+        pool.claimWithdrawal(payable(address(rejecter)));
+        require(pool.withdrawalCredit(address(rejecter)) == 0, "credit remained");
+        require(address(rejecter).balance == before + 2 ether, "payout missing");
     }
 
     function test_epoch_sources_are_distinct_but_nullifier_domain_is_stable() public view {

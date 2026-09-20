@@ -20,6 +20,8 @@ PRICE=(--gas-price 3000000000 --priority-gas-price 1000000000)
 SMOKE_OUTPUT=${SMOKE_OUTPUT:-../wallet/artifacts/smoke_fixture.live.json}
 deployed() { grep -oE 'Deployed to: 0x[0-9a-fA-F]{40}' | awk '{print $3}'; }
 addr_of() { python3 -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])'; }
+# Cast annotates large ints as "550000000000000000 [5.5e17]". int() needs the first token.
+cast_uint() { python3 -c 'import sys; print(int(sys.argv[1].strip().split()[0], 0))' "$1"; }
 verify_library_runtime() {
   local addr=$1 expected=$2 actual prefix actual_lower prefix_lower
   actual=$(cast code "$addr" --rpc-url "$RPC")
@@ -101,8 +103,14 @@ SOURCE0=$(cast call "$POOL" 'sourceId(uint64)(bytes32)' 0 --rpc-url "$RPC")
 DOMAIN=$(cast call "$POOL" 'domain()(bytes32)' --rpc-url "$RPC")
 echo "    pool=$POOL source0=$SOURCE0 domain=$DOMAIN"
 
+echo "==> RejectEther recipient (starts rejecting so a seed claim can leave credit)"
+REJECTER=$(forge create --root "$BN" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" \
+  --gas-limit 1000000 --broadcast test/DispatcherPool.t.sol:RejectEther | deployed)
+echo "    rejecter=$REJECTER"
+
 echo "==> deployment-bound proofs"
-python3 ../wallet/gen_smoke.py --chain-id="$CHAIN_ID" --pool-address="$POOL" --output="$SMOKE_OUTPUT"
+python3 ../wallet/gen_smoke.py --chain-id="$CHAIN_ID" --pool-address="$POOL" \
+  --recipient="$REJECTER" --output="$SMOKE_OUTPUT"
 
 python3 - "$RPC" "$POOL" <<'PY'
 import json, sys
@@ -166,6 +174,9 @@ if "settle_frame_state_gas" in manifest:
 # incomplete record.
 if "recent_root_frame_gas" in manifest:
     cfg["recentRootGas"] = manifest["recent_root_frame_gas"]
+if "claim_frame_gas" in manifest:
+    cfg["claimGas"] = manifest["claim_frame_gas"]
+    cfg["claimStateGas"] = manifest["claim_frame_state_gas"]
 with open("deploy_config.json", "w") as f:
     json.dump(cfg, f, indent=1)
 print("wrote deploy_config.json")
@@ -199,31 +210,35 @@ json.dump(cfg, open("deploy_config.json", "w"), indent=1)
 print(f"    withdraw root slot={sys.argv[1]}")
 PY
 
-  echo "==> withdraw (shielded spend, note -> credit)"
-  python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
+  # Leave real withdrawalCredit on the recipient so the existing
+  # credit_before + publicAmount check is not vacuously 0 + publicAmount.
+  # Alice's change exits to the same recipient; sinks do not change the root.
+  echo "==> seed prior credit (withdraw_seed claim expected to revert)"
+  python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK" \
+    --spend-key withdraw_seed --allow-failed-claim
 
-  # A withdraw books a credit; it does not push funds. Until the credit is claimed the
-  # recipient's balance is unchanged and the pool still holds the money, so a run that
-  # stops at the withdraw proves the proof verified and nothing about the payout.
-  # 900k rather than a round 200k: the claim measured 216,740 gas here, and at 200,000 it
-  # runs out mid-payout and reverts having consumed the lot.
-  #
-  # The payout is judged as a balance delta, not as "nonzero afterwards": the fixture's
-  # recipient is a fixed address, so on a chain that has seen one successful run it is
-  # already funded and a reverted claim would otherwise pass.
   RECIPIENT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recipient"])' "$SMOKE_OUTPUT")
+  SEED_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw_seed"]["public_amount"])' "$SMOKE_OUTPUT")
   PUBLIC_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw"]["public_amount"])' "$SMOKE_OUTPUT")
-  BEFORE=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
-  echo "==> claim (credit -> recipient $RECIPIENT, expecting +$PUBLIC_AMOUNT wei)"
-  claim=$(cast send "$POOL" 'claimWithdrawal(address)' "$RECIPIENT" --rpc-url "$RPC" \
-    --private-key "$DEPLOYER_PK" "${PRICE[@]}" --gas-limit 900000 --json)
-  [[ $(jq -r '.status' <<<"$claim") == "0x1" ]] || {
-    echo "claim reverted: $(jq -r '.transactionHash' <<<"$claim")" >&2; exit 1; }
-  AFTER=$(cast balance "$RECIPIENT" --rpc-url "$RPC")
+  CREDIT_BEFORE=$(cast_uint "$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")")
+  [[ "$CREDIT_BEFORE" == "$SEED_AMOUNT" && "$CREDIT_BEFORE" != 0 ]] || {
+    echo "seed did not leave expected credit: got $CREDIT_BEFORE want $SEED_AMOUNT" >&2; exit 1; }
+  cast send "$REJECTER" 'setReject(bool)' false --rpc-url "$RPC" --private-key "$DEPLOYER_PK" \
+    "${PRICE[@]}" --gas-limit 100000 >/dev/null
+  BEFORE=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
+  EXPECTED=$(python3 -c 'import sys; print(int(sys.argv[1]) + int(sys.argv[2]))' "$CREDIT_BEFORE" "$PUBLIC_AMOUNT")
+  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$EXPECTED wei including prior credit $CREDIT_BEFORE)"
+  python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
+  AFTER=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
+  CREDIT_AFTER=$(cast_uint "$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")")
   # Balances outgrow bash's 64-bit arithmetic after a few ETH, so subtract in python.
+  # claimWithdrawal pays all credit already held for the recipient, not just this
+  # spend's publicAmount.
   PAID=$(python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$AFTER" "$BEFORE")
-  [[ $PAID == "$PUBLIC_AMOUNT" ]] || {
-    echo "claim paid $PAID wei to the recipient, expected $PUBLIC_AMOUNT" >&2; exit 1; }
-  echo "    recipient +$PAID wei ($BEFORE -> $AFTER)"
+  [[ $PAID == "$EXPECTED" ]] || {
+    echo "withdraw paid $PAID wei to the recipient, expected $EXPECTED" >&2; exit 1; }
+  [[ $CREDIT_AFTER == 0 ]] || {
+    echo "recipient credit remaining after claim: $CREDIT_AFTER" >&2; exit 1; }
+  echo "    recipient +$PAID wei ($BEFORE -> $AFTER); credit $CREDIT_BEFORE -> 0"
   echo "==> spends settled"
 fi

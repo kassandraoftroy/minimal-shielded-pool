@@ -19,7 +19,7 @@ fixture pairs with the committed Groth16Verifier.sol from the same setup.
 Run from the wallet/ directory:
   python3 gen_smoke.py [--random] [--chain-id=N] [--pool-address=0x...]
                        [--shield-wei=N] [--payment-wei=N] [--fee-wei=N]
-                       [--output=PATH]
+                       [--output=PATH] [--recipient=0x...]
 
 The value overrides preserve the same flow at a smaller scale. They are useful
 for disposable devnet deployments and envelope boundary tests; defaults remain
@@ -122,6 +122,7 @@ def main():
     payment_wei = ETH * 60 // 100
     fee_wei = ETH * 5 // 100
     output_path = HERE / "smoke_fixture.json"
+    recipient = RECIPIENT
     for arg in sys.argv[1:]:
         if arg.startswith("--chain-id="):
             chain_id = int(arg.split("=", 1)[1], 0)
@@ -133,6 +134,13 @@ def main():
             payment_wei = int(arg.split("=", 1)[1], 0)
         elif arg.startswith("--fee-wei="):
             fee_wei = int(arg.split("=", 1)[1], 0)
+        elif arg.startswith("--recipient="):
+            recipient = arg.split("=", 1)[1]
+            if not recipient.startswith("0x"):
+                recipient = "0x" + recipient
+            if w.address_scalar(recipient) == 0 or w.address_scalar(recipient) >= 1 << 160:
+                raise SystemExit(f"invalid --recipient: {recipient}")
+            recipient = f"0x{w.address_scalar(recipient):040x}"
         elif arg.startswith("--output="):
             output_path = Path(arg.split("=", 1)[1]).expanduser().resolve()
     domain = w.domain_scalar(chain_id, pool_address)
@@ -145,6 +153,8 @@ def main():
     if not 0 < v_fee < v_bob < v_shield:
         raise SystemExit("value overrides require 0 < fee < payment < shield")
     v_change = v_shield - v_bob - v_fee
+    if v_change <= v_fee:
+        raise SystemExit("value overrides require change > fee so withdraw_seed can leave prior credit")
     inner_a = w.inner(sk_a, rho_a)
     cm_a = w.commitment(sk_a, rho_a, v_shield)
 
@@ -171,9 +181,22 @@ def main():
     auth_w_key, auth_w = w.new_authorizer()
     ww = w.build_witness(
         t2, ins_w, outs_w, domain, authorizer=auth_w,
-        public_amount=v_pub, fee=v_fee, recipient=RECIPIENT,
+        public_amount=v_pub, fee=v_fee, recipient=recipient,
     )
     pub_w, proof_w = prove(ww, "withdraw")
+
+    # Alice's change at leaf 2, same post-transfer root: a seed exit that can
+    # leave withdrawalCredit on the recipient without invalidating Bob's proof.
+    cm_change = w.commitment(sk_a2, rho_a2, v_change)
+    assert t2.leaves[2] == cm_change, "Alice's change is leaf 2"
+    ins_seed = [{"sk": sk_a2, "rho": rho_a2, "value": v_change, "idx": 2}, w.dummy_input()]
+    v_seed_pub = v_change - v_fee
+    auth_s_key, auth_s = w.new_authorizer()
+    ws = w.build_witness(
+        t2, ins_seed, w.sink_outputs(), domain, authorizer=auth_s,
+        public_amount=v_seed_pub, fee=v_fee, recipient=recipient,
+    )
+    pub_s, proof_s = prove(ws, "withdraw_seed")
 
     # The old circuit accepted one real note in both inputs and relied only on
     # the envelope's duplicate-key rule. V2 rejects the witness itself.
@@ -229,14 +252,17 @@ def main():
         "inner_a": hex32(inner_a),
         "cm_a": hex32(cm_a),
         "shield_value": str(v_shield),
-        "recipient": RECIPIENT,
+        "recipient": recipient,
         "transfer": spend_entry(t1, domain, ins_t, outs_t, 0,
                                 0, v_fee, 0, auth_t, auth_t_key, pub_t, proof_t,
                                 # Bob's opening is retained for the withdrawal vector.
                                 out_inner1=hex32(outs_t[0][0]),
                                 out_value1=str(outs_t[0][1])),
+        "withdraw_seed": spend_entry(t2, domain, ins_seed, w.sink_outputs(), 0,
+                                     v_seed_pub, v_fee, w.address_scalar(recipient),
+                                     auth_s, auth_s_key, pub_s, proof_s),
         "withdraw": spend_entry(t2, domain, ins_w, outs_w, 0,
-                                v_pub, v_fee, w.address_scalar(RECIPIENT),
+                                v_pub, v_fee, w.address_scalar(recipient),
                                 auth_w, auth_w_key, pub_w, proof_w),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -244,6 +270,7 @@ def main():
     print("real join-split proofs generated and verified off-chain; public signals bind the wallet publics")
     print(f"wrote {output_path}")
     print(f"  transfer  nf1 {fixture['transfer']['nf1'][:18]}... nf2 {fixture['transfer']['nf2'][:18]}... fee {v_fee}")
+    print(f"  withdraw_seed publicAmount {v_seed_pub} fee {v_fee}")
     print(f"  withdraw  publicAmount {v_pub} fee {v_fee}")
     print(f"  domain   {fixture['domain']} (chain {chain_id}, pool {pool_address})")
     print("  same-note witness rejected in-circuit (nf1 != nf2)")

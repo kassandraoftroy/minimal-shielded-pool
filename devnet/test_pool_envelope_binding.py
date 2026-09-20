@@ -9,6 +9,8 @@ from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
 from pool_frametx import (
+    CLAIM_FRAME_GAS,
+    CLAIM_FRAME_STATE_GAS,
     RECENT_ROOT_ADDRESS,
     RECENT_ROOT_FRAME_GAS,
     SETTLE_FRAME_GAS,
@@ -17,6 +19,7 @@ from pool_frametx import (
     VERIFY_FRAME_GAS,
     VERIFY_FRAME_STATE_GAS,
     cast_calldata,
+    claim_frame,
     proof_bytes,
     spend_args,
 )
@@ -29,9 +32,9 @@ def root_tuple(source, slot, root):
     return source + slot.to_bytes(8, "big") + root
 
 
-def build():
+def _signed(entry_key):
     fixture = json.loads(FIXTURE.read_text())
-    entry = copy.deepcopy(fixture["transfer"])
+    entry = copy.deepcopy(fixture[entry_key])
     entry["root_slot"] = "1"
     pool = int(fixture["pool_address"], 16)
     epoch = int(entry["epoch"])
@@ -40,19 +43,23 @@ def build():
     settle = cast_calldata(f"settle({SPEND_TUPLE})", spend_args(entry))
     authorizer = int(entry["authorizer"], 16)
     pk = keys.PrivateKey(bytes.fromhex(entry["authorizer_private_key"][2:]))
+    frames = [
+        Frame(1, 0, int(RECENT_ROOT_ADDRESS, 16), RECENT_ROOT_FRAME_GAS, 0,
+              root_tuple(source, 1, root)),
+        Frame(1, 3, pool, VERIFY_FRAME_GAS, 0, proof_bytes(entry),
+              state_limit=VERIFY_FRAME_STATE_GAS),
+        Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
+              state_limit=SETTLE_FRAME_STATE_GAS),
+    ]
+    tail = claim_frame(pool, settle)
+    if tail is not None:
+        frames.append(tail)
     tx = FrameTx(
         chain_id=int(fixture["chain_id"]),
         nonce_keys=sorted([int(entry["nf1"], 16), int(entry["nf2"], 16)]),
         nonce_seq=0,
         sender=pool,
-        frames=[
-            Frame(1, 0, int(RECENT_ROOT_ADDRESS, 16), RECENT_ROOT_FRAME_GAS, 0,
-                  root_tuple(source, 1, root)),
-            Frame(1, 3, pool, VERIFY_FRAME_GAS, 0, proof_bytes(entry),
-                  state_limit=VERIFY_FRAME_STATE_GAS),
-            Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
-                  state_limit=SETTLE_FRAME_STATE_GAS),
-        ],
+        frames=frames,
         signatures=[FrameSig(FrameSig.SECP256K1, authorizer, b"", b"")],
         max_priority_fee=1,
         max_fee=10,
@@ -64,12 +71,9 @@ def build():
     return tx, authorizer
 
 
-def main():
-    tx, authorizer = build()
-    original_hash = tx.sig_hash()
-    original_signature = tx.signatures[0].signature
-
+def common_mutations(tx):
     mutations = []
+
     def add(name, fn):
         candidate = copy.deepcopy(tx)
         fn(candidate)
@@ -106,7 +110,6 @@ def main():
     add("max_fee", lambda x: setattr(x, "max_fee", 11))
     add("blob_fee", lambda x: setattr(x, "max_blob_fee", 1))
     add("blob_hashes", lambda x: x.blob_hashes.append(b"\x01" * 32))
-    # The EIP-8272 tuple is frame 0's data; the frame's own shape is bound too.
     add("root_source", lambda x: setattr(x.frames[0], "data", root_tuple(b"\x01" * 32, 1, b"\x02" * 32)))
     add("root_slot", lambda x: setattr(x.frames[0], "data", root_tuple(b"\x01" * 32, 2, b"\x02" * 32)))
     add("root_value", lambda x: setattr(x.frames[0], "data", root_tuple(b"\x01" * 32, 1, b"\x03" * 32)))
@@ -114,7 +117,34 @@ def main():
     add("root_frame_flags", lambda x: setattr(x.frames[0], "flags", 1))
     add("root_frame_gas", lambda x: setattr(x.frames[0], "gas_limit", RECENT_ROOT_FRAME_GAS - 1))
     add("root_frame_state_gas", lambda x: setattr(x.frames[0], "state_limit", 1))
+    return mutations
 
+
+def claim_mutations(tx):
+    mutations = []
+
+    def add(name, fn):
+        candidate = copy.deepcopy(tx)
+        fn(candidate)
+        mutations.append((name, candidate))
+
+    add("claim_mode", lambda x: setattr(x.frames[3], "mode", 2))
+    add("claim_flags", lambda x: setattr(x.frames[3], "flags", 1))
+    add("claim_target", lambda x: setattr(x.frames[3], "target", x.frames[3].target ^ 1))
+    add("claim_gas", lambda x: setattr(x.frames[3], "gas_limit", CLAIM_FRAME_GAS - 1))
+    add("claim_state_gas", lambda x: setattr(
+        x.frames[3], "state_limit", CLAIM_FRAME_STATE_GAS - 1))
+    add("claim_value", lambda x: setattr(x.frames[3], "value", 1))
+    add("claim_selector", lambda x: setattr(
+        x.frames[3], "data", bytes([x.frames[3].data[0] ^ 1]) + x.frames[3].data[1:]))
+    add("claim_recipient", lambda x: setattr(
+        x.frames[3], "data", x.frames[3].data[:-1] + bytes([x.frames[3].data[-1] ^ 1])))
+    return mutations
+
+
+def assert_unbound(tx, authorizer, mutations):
+    original_hash = tx.sig_hash()
+    original_signature = tx.signatures[0].signature
     for name, candidate in mutations:
         assert candidate.sig_hash() != original_hash, f"signature hash did not bind {name}"
         sig = keys.Signature(vrs=(original_signature[0],
@@ -122,12 +152,28 @@ def main():
                                   int.from_bytes(original_signature[33:65], "big")))
         recovered = sig.recover_public_key_from_msg_hash(candidate.sig_hash()).to_canonical_address()
         assert recovered != authorizer.to_bytes(20, "big"), f"old signature authorized {name}"
-
     raw_changed = copy.deepcopy(tx)
     raw_changed.signatures[0].signature = bytes([original_signature[0]]) + bytes([original_signature[1] ^ 1]) + original_signature[2:]
     assert raw_changed.sig_hash() == original_hash, "empty-msg raw signature bytes must be elided"
 
-    print(json.dumps({"bound_mutations": len(mutations),
+
+def main():
+    transfer, transfer_auth = _signed("transfer")
+    assert len(transfer.frames) == 3, "private transfers keep three frames"
+    transfer_mutations = common_mutations(transfer)
+    assert_unbound(transfer, transfer_auth, transfer_mutations)
+
+    withdraw, withdraw_auth = _signed("withdraw")
+    assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT claim frame"
+    assert withdraw.frames[3].mode == 0, "claim frame is DEFAULT"
+    withdraw_mutations = common_mutations(withdraw) + claim_mutations(withdraw)
+    assert_unbound(withdraw, withdraw_auth, withdraw_mutations)
+
+    print(json.dumps({"transfer_frames": 3,
+                      "withdraw_frames": 4,
+                      "claim_mode": 0,
+                      "bound_mutations_transfer": len(transfer_mutations),
+                      "bound_mutations_withdraw": len(withdraw_mutations),
                       "raw_signature_elision_only": True,
                       "proof_bytes_bound": True,
                       "settlement_words_bound": 12}, sort_keys=True))
