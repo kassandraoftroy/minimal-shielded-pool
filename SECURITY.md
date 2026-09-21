@@ -28,8 +28,8 @@ external paymaster or caller-selected fee recipient.
 
 The circuit selects a fresh nonzero secp256k1 authorizer. EIP-8141 validates
 its canonical low-s signature over the complete FrameTx hash. The dispatcher
-requires that recovered signer through `SIGPARAM`, one signature, a three-frame
-transfer grammar or a four-frame withdrawal or generic-tail grammar, the complete two-key
+requires that recovered signer through `SIGPARAM`, one signature, a three- or
+four-frame spend grammar, the complete two-key
 EIP-8250 nonce set, and the exact EIP-8272 tuple proven by the leading
 recent-root verifier frame. A copied or rerandomized proof cannot be rewrapped
 without the one-time private key.
@@ -92,9 +92,9 @@ Wallets default the tail to the old `claimWithdrawal` budgets (100,000
 execution / 183,600 state) and only raise gas for a custom target or
 calldata. Wallets must declare measured limits; both 10M ceilings in one
 transaction exceed EIP-7825's `2^24` per-tx gas cap. Settlement remains the
-only `SENDER` frame. Withdrawals require this fourth frame;
-zero-withdrawal spends may keep three frames. A zero-withdrawal tail cannot
-target the pool. A withdrawal tail may target the pool so
+only `SENDER` frame. The fourth frame is optional on every spend, including
+withdrawals: omitting it leaves `withdrawalCredit`. A zero-withdrawal tail
+cannot target the pool. A withdrawal tail may target the pool so
 `DEFAULT(pool, claimWithdrawal(recipient))` remains valid.
 
 `recipient` is the payout key, not the frame target. `claimWithdrawal(who)`

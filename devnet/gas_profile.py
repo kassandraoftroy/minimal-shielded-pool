@@ -19,10 +19,12 @@ SETTLE_FRAME_GAS = 2_000_000
 SETTLE_FRAME_STATE_GAS = 550_000
 # Wallet/tooling default for the normal withdraw tail:
 # DEFAULT(pool, claimWithdrawal(recipient)). These used to be dispatcher
-# pins. They are still the declared limits for that path. Custom tails
-# (a different target or calldata) raise gas above these defaults, up
-# to the leftover caps. On native ethrex commit 247e2dd2, a DEFAULT
-# claim to a new EOA used 14,716 execution gas and 183,600 state gas.
+# pins. The fourth frame is optional on every spend; omitting it on a
+# withdrawal leaves withdrawalCredit. These remain the declared limits
+# when the wallet does emit the default claim. Custom tails (a different
+# target or calldata) raise gas above these defaults, up to the leftover
+# caps. On native ethrex commit 247e2dd2, a DEFAULT claim to a new EOA
+# used 14,716 execution gas and 183,600 state gas.
 CLAIM_FRAME_GAS = 100_000
 CLAIM_FRAME_STATE_GAS = 183_600
 CLAIM_WITHDRAWAL_CALLDATA = 36

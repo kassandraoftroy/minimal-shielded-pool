@@ -119,6 +119,10 @@ def main():
     assert claim.target == POOL and claim.mode == 0 and claim.flags == 0 and claim.value == 0
     assert len(claim.data) == 36
     checked += 1
+    assert spend_tail_frame(POOL, withdrawal, omit=True) is None
+    checked += 1
+    checked += rejects(
+        lambda: spend_tail_frame(POOL, withdrawal, action, omit=True), "omit cannot")
     custom = spend_tail_frame(POOL, withdrawal, action)
     assert custom.target == ACCOUNT and custom.gas_limit == ACTION_FRAME_MAX_GAS
     checked += 1

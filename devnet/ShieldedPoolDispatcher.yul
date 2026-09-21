@@ -153,12 +153,12 @@ object "ShieldedPoolDispatcher" {
             }
 
             function verifyFrameApprove() {
-                // Withdrawals require a fourth DEFAULT tail. A zero-withdrawal
-                // spend may append one generic DEFAULT tail, or keep three frames.
+                // Three frames, or four with one generic DEFAULT tail.
+                // publicAmount does not force the fourth frame: a withdrawal
+                // without a tail leaves withdrawalCredit for a later claim.
                 if iszero(eq(txParam(0x02), address())) { fail(errShape()) }
                 let frames := txParam(0x09)
                 if iszero(or(eq(frames, 3), eq(frames, 4))) { fail(errShape()) }
-                if and(iszero(eq(frames, 4)), iszero(iszero(frameDataLoad(2, 260)))) { fail(errShape()) }
                 if iszero(eq(txParam(0x0A), 1)) { fail(errShape()) }
                 if iszero(eq(txParam(0x0B), 1)) { fail(errShape()) }
                 if txParam(0x07) { fail(errShape()) }

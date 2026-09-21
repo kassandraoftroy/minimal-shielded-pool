@@ -9,14 +9,13 @@ Spends use one base grammar:
   VERIFY(0x…8272, tuple) -> VERIFY(pool, proof, execution+payment)
     -> SENDER(pool, settle(Spend))
 
-Public withdrawals require a fourth DEFAULT tail. The wallet default is
-DEFAULT(pool, claimWithdrawal(recipient)) at CLAIM_FRAME_GAS /
-CLAIM_FRAME_STATE_GAS — the budgets the dispatcher used to pin. Any other
-target and calldata is a custom tail: the wallet raises declared gas above
-those defaults, under the leftover caps. Private transfers stay at three
-frames unless the wallet supplies one generic DEFAULT action. That frame
-has zero value and is fully covered by the proof-selected authorizer's
-FrameTx signature.
+Every spend is three frames and may append one DEFAULT tail. The wallet
+default for a withdrawal is DEFAULT(pool, claimWithdrawal(recipient)) at
+CLAIM_FRAME_GAS / CLAIM_FRAME_STATE_GAS — the budgets the dispatcher used
+to pin. Omitting the tail leaves withdrawalCredit. Any other target and
+calldata is a custom tail: the wallet raises declared gas above those
+defaults, under the leftover caps. That frame has zero value and is fully
+covered by the proof-selected authorizer's FrameTx signature.
 
 The leading frame is EIP-8272's canonical recent-root verifier: the predeploy checks the
 `(source_id, slot, root)` tuple in its data and reverts otherwise. The pool is sender and
@@ -31,6 +30,7 @@ Usage (append --dry-run to simulate without submitting):
   pool_frametx.py <rpc> config.json fixture.json withdraw <unused>
   pool_frametx.py ... transfer|withdraw <unused> --action-target 0x... \
       --action-call 0x... --action-gas N --action-state-gas N
+  pool_frametx.py ... withdraw <unused> --no-tail
 
 Spend signing keys come from the fixture's proof-bound
 `authorizer_private_key`. `--root-slot N` supplies the consensus slot in which
@@ -250,13 +250,14 @@ def recent_root_tuple(url, cfg, e):
     return source_id + slot.to_bytes(8, "big") + root
 
 
-def spend_tail_frame(pool, settle_calldata, action=None):
+def spend_tail_frame(pool, settle_calldata, action=None, *, omit=False):
     """Derive the optional fourth DEFAULT frame from a canonical settlement.
 
-    Withdrawals default to the permissionless pool claim at the old pinned
-    claimWithdrawal gas. Any spend may instead append one explicitly
-    authorized DEFAULT call and raise gas under the leftover caps.
-    A zero-public-amount tail cannot target the pool.
+    The fourth frame is optional on every spend. Withdrawals default to the
+    permissionless pool claim at the old pinned claimWithdrawal gas. omit=True
+    skips that default and leaves withdrawalCredit. Any spend may instead
+    append one explicitly authorized DEFAULT call and raise gas under the
+    leftover caps. A zero-public-amount tail cannot target the pool.
     """
     selector = _keccak(f"settle({SPEND_TUPLE})".encode())[:4]
     if len(settle_calldata) != 4 + 12 * 32 or settle_calldata[:4] != selector:
@@ -267,6 +268,10 @@ def spend_tail_frame(pool, settle_calldata, action=None):
         raise ValueError("invalid pool, recipient, or public amount")
     if (amount == 0) != (recipient == 0):
         raise ValueError("public amount and recipient must both be zero or both nonzero")
+    if omit:
+        if action is not None:
+            raise ValueError("omit cannot be combined with a custom action")
+        return None
     if action is None:
         if amount == 0:
             return None
@@ -303,9 +308,10 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
                    recent_root=None, dry_run=False, sender_override=None,
                    max_fee_override=None, max_priority_override=None,
                    settle_gas_override=None, save_raw=None, frame0_data=b"",
-                   allow_failed_claim=False, action=None):
+                   allow_failed_claim=False, action=None, omit_tail=False):
     try:
-        tail = spend_tail_frame(pool, calldata, action) if proof_verify else None
+        tail = (spend_tail_frame(pool, calldata, action, omit=omit_tail)
+                if proof_verify else None)
     except ValueError as error:
         raise SystemExit(str(error)) from None
     if action is not None and not proof_verify:
@@ -536,12 +542,15 @@ def main():
                 or cfg.get("actionMaxStateGas") != ACTION_FRAME_MAX_STATE_GAS
                 or cfg.get("actionMaxCalldata") != ACTION_FRAME_MAX_CALLDATA):
             raise SystemExit(f"spends require action caps matching {POOL_PROFILE}")
+    omit_tail = "--no-tail" in sys.argv
     try:
         action = action_options(sys.argv[6:])
     except ValueError as error:
         raise SystemExit(str(error)) from None
-    if action is not None and op not in ("transfer", "withdraw"):
-        raise SystemExit("action options are valid only for transfer or withdraw")
+    if omit_tail and action is not None:
+        raise SystemExit("--no-tail cannot be combined with action options")
+    if (action is not None or omit_tail) and op not in ("transfer", "withdraw"):
+        raise SystemExit("action options and --no-tail are valid only for transfer or withdraw")
     pk = keys.PrivateKey(bytes.fromhex(priv.removeprefix("0x")))
     dry = "--dry-run" in sys.argv
     sender_override = None
@@ -618,6 +627,8 @@ def main():
             sender_override = pool
     if allow_failed_claim and op != "withdraw":
         raise SystemExit("--allow-failed-claim is only valid on withdraw")
+    if allow_failed_claim and omit_tail:
+        raise SystemExit("--allow-failed-claim cannot be combined with --no-tail")
 
     def spend_setup(op_name):
         """Protocol nonces, validation data, and recent-root tuple for a
@@ -669,7 +680,7 @@ def main():
                        dry_run=dry, sender_override=sender_override,
                        max_fee_override=max_fee_override, max_priority_override=max_priority_override,
                        settle_gas_override=settle_gas_override, save_raw=save_raw,
-                       frame0_data=proof_bytes(e), action=action)
+                       frame0_data=proof_bytes(e), action=action, omit_tail=omit_tail)
     elif op == "withdraw":
         e, protocol_nonces, verify, refs, auth_pk = spend_setup("withdraw")
         if nonce_keys_override is not None:
@@ -681,7 +692,7 @@ def main():
                        max_fee_override=max_fee_override, max_priority_override=max_priority_override,
                        settle_gas_override=settle_gas_override, save_raw=save_raw,
                        frame0_data=proof_bytes(e), allow_failed_claim=allow_failed_claim,
-                       action=action)
+                       action=action, omit_tail=omit_tail)
     else:
         raise SystemExit(f"unknown op {op}")
 

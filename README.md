@@ -36,8 +36,8 @@ commitments at different positions have different nullifiers, so neither
 deposit nor settlement needs a commitment-uniqueness registry. Wallets track
 each occurrence separately and rebuild positions after a reorg.
 
-Private transfers use three frames and may append a fourth. Public withdrawals
-require a fourth:
+Every spend uses three frames and may append a fourth. `publicAmount` does
+not force the tail: a withdrawal without one leaves `withdrawalCredit`.
 
 1. `VERIFY(0x…8272, tuple)`, EIP-8272's canonical recent-root verifier. The
    protocol runs `RECENT_ROOT_CODE` over the 72-byte tuple before any pool code
@@ -45,28 +45,29 @@ require a fourth:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
-4. One generic `DEFAULT` tail, never `SENDER`. The frame has zero value and
-   flags, a nonzero target, and leftover caps of 10,000,000 execution gas,
-   10,000,000 state gas and 32,768 calldata bytes. The normal withdraw path
-   is still `DEFAULT(pool, claimWithdrawal(recipient))` with the old claim
-   budgets (100,000 execution / 183,600 state). Custom tails raise those
-   declared limits under the leftover caps. Wallets must declare **measured**
-   limits: both 10M ceilings in one transaction exceed EIP-7825's `2^24`
-   per-tx gas cap. Unused `fee - actual_gas_cost` stays in the pool.
-   The proof-selected authorizer's FrameTx
-   signature binds the target and calldata. `publicAmount > 0` may target the
-   pool so the simple path remains `DEFAULT(pool, claimWithdrawal(recipient))`.
-   A zero-withdrawal tail cannot target the pool. If the tail fails, settlement
-   stands: a withdrawal credit remains on `recipient` and can be claimed later.
-   Standalone `claimWithdrawal` remains for leftover credits. `claimWithdrawal`
-   always pays the recorded `who`, so the proof recipient is the payout dest.
+4. Optional generic `DEFAULT` tail, never `SENDER`. The frame has zero value
+   and flags, a nonzero target, and leftover caps of 10,000,000 execution
+   gas, 10,000,000 state gas and 32,768 calldata bytes. The normal withdraw
+   path is still `DEFAULT(pool, claimWithdrawal(recipient))` with the old
+   claim budgets (100,000 execution / 183,600 state). Custom tails raise
+   those declared limits under the leftover caps. Wallets must declare
+   **measured** limits: both 10M ceilings in one transaction exceed
+   EIP-7825's `2^24` per-tx gas cap. Unused `fee - actual_gas_cost` stays
+   in the pool. The proof-selected authorizer's FrameTx signature binds the
+   target and calldata. `publicAmount > 0` may target the pool so the simple
+   path remains `DEFAULT(pool, claimWithdrawal(recipient))`. A
+   zero-withdrawal tail cannot target the pool. If the tail is omitted or
+   fails, settlement stands: a withdrawal credit remains on `recipient` and
+   can be claimed later. Standalone `claimWithdrawal` remains for leftover
+   credits. `claimWithdrawal` always pays the recorded `who`, so the proof
+   recipient is the payout dest.
 
-A spend with `publicAmount = 0` and `recipient = 0` may keep three frames or
-append that same generic tail, paying its gas from the shielded fee. The called
-account must authenticate its own owner; the note authorizer does not gain
-permission to spend that account's assets. This is a direct account call, not
-an ERC-4337 UserOperation adapter. The pool adds no account or factory
-implementation. See [SECURITY.md](SECURITY.md#generic-default-tail).
+A spend with `publicAmount = 0` and `recipient = 0` uses that same optional
+tail, paying its gas from the shielded fee. The called account must
+authenticate its own owner; the note authorizer does not gain permission to
+spend that account's assets. This is a direct account call, not an ERC-4337
+UserOperation adapter. The pool adds no account or factory implementation.
+See [SECURITY.md](SECURITY.md#generic-default-tail).
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including

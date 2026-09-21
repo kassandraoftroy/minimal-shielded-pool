@@ -34,7 +34,7 @@ def root_tuple(source, slot, root):
     return source + slot.to_bytes(8, "big") + root
 
 
-def _signed(entry_key, action=None):
+def _signed(entry_key, action=None, *, omit=False):
     fixture = json.loads(FIXTURE.read_text())
     entry = copy.deepcopy(fixture[entry_key])
     entry["root_slot"] = "1"
@@ -53,7 +53,7 @@ def _signed(entry_key, action=None):
         Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
               state_limit=SETTLE_FRAME_STATE_GAS),
     ]
-    tail = spend_tail_frame(pool, settle, action)
+    tail = spend_tail_frame(pool, settle, action, omit=omit)
     if tail is not None:
         frames.append(tail)
     tx = FrameTx(
@@ -201,10 +201,15 @@ def main():
     assert_unbound(action_tx, action_auth, action_bound)
 
     withdraw, withdraw_auth = _signed("withdraw")
-    assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT tail"
+    assert len(withdraw.frames) == 4, "wallet default withdraw adds a DEFAULT claim"
     assert withdraw.frames[3].mode == 0, "default withdraw tail is DEFAULT"
     withdraw_mutations = common_mutations(withdraw) + claim_mutations(withdraw)
     assert_unbound(withdraw, withdraw_auth, withdraw_mutations)
+
+    withdraw_credit, withdraw_credit_auth = _signed("withdraw", omit=True)
+    assert len(withdraw_credit.frames) == 3, "withdrawals may omit the tail"
+    withdraw_credit_mutations = common_mutations(withdraw_credit)
+    assert_unbound(withdraw_credit, withdraw_credit_auth, withdraw_credit_mutations)
 
     withdraw_action_tx, withdraw_action_auth = _signed("withdraw", action)
     assert len(withdraw_action_tx.frames) == 4, "custom withdraw tail stays at four frames"
@@ -215,11 +220,13 @@ def main():
 
     print(json.dumps({"transfer_frames": 3,
                       "withdraw_frames": 4,
+                      "withdraw_credit_frames": 3,
                       "action_frames": 4,
                       "withdraw_action_frames": 4,
                       "claim_mode": 0,
                       "bound_mutations_transfer": len(transfer_mutations),
                       "bound_mutations_withdraw": len(withdraw_mutations),
+                      "bound_mutations_withdraw_credit": len(withdraw_credit_mutations),
                       "bound_mutations_action": len(action_bound),
                       "bound_mutations_withdraw_action": len(withdraw_action_bound),
                       "raw_signature_elision_only": True,
