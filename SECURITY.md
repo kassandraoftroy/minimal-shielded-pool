@@ -40,9 +40,12 @@ transaction under the pinned fork gas profile. Native testing has reproduced an
 existing production blocker: approval can succeed and settlement can still fail
 after the nullifier keys are consumed, so the promised outputs are not created.
 A failed claim frame does not undo settlement. If the recipient reverts or the
-claim runs out of gas, the credit created by frame 2 remains and can be claimed
-later. The implementation does not allow caller-chosen post-approval calls. Its
-required Poseidon operations use fixed-code
+claim runs out of gas, the credit created by frame 2 remains keyed by that
+spend's first nullifier and can be claimed later. A later claim of a different
+id cannot take it. The implementation does not allow caller-chosen post-approval
+calls except the dual-target fourth DEFAULT frame: exact `claimWithdrawal(nf1)`
+on the pool, or `settleWithdrawal(nf1, extra)` on the proof recipient under
+leftover gas caps. Required Poseidon operations use fixed-code
 static calls to two immutable, deployment-verified libraries. The 2M SENDER
 constant must be re-proved before every gas repricing fork.
 
@@ -62,7 +65,7 @@ Root publication is not part of settlement. `publishEpochRoot(epoch)` accepts
 no caller-supplied root, reads the active or finalized authenticated root, and
 may safely be retried. A publication failure cannot consume note keys.
 Withdrawals use checks-effects-interactions; a failed claim reverts and restores
-the credit.
+that id's credit. Payout always goes to the recorded recipient.
 
 The Solidity implementation rejects direct state-changing calls. The immutable
 dispatcher owns funds and storage. Deployment verifies the verifier,
@@ -82,7 +85,7 @@ dispatcher, logic, and both Poseidon runtimes before the pool is used.
   insufficient.
 - A fork-scoped proof that the settlement limits cover all cold-state, rollover,
   credit, proxy, and static-call paths. The current profile declares 1,400,000
-  execution gas and 550,000 state gas, replacing the single 2,000,000-gas budget
+  execution gas and 650,000 state gas, replacing the single 2,000,000-gas budget
   that predates EIP-8037's second dimension. Unsupported repricing forks require
   a new immutable profile.
 - Independent circuit, Solidity, Yul, wallet, and deployment review.
@@ -104,11 +107,13 @@ secrets and one-time authorizer keys are not durably backed up.
 The Forge suite covers actual Poseidon runtimes, a 2M-capped worst-shape
 rollover with two outputs and a new credit, pre-insert rollover, full-tree
 exit, sink rules, separate publication failure/retry, pull-credit failure,
-direct-call rejection, valid proof verification, coordinate aliases, infinity,
+per-nullifier claim isolation, direct-call rejection, valid proof verification,
+coordinate aliases, infinity,
 and authorizer mutation. The circuit generator rejects same-note inputs,
 duplicate outputs, dummy-only spends, wrong sinks, sink-valued positive outputs,
 zero authorizers, and recipient mismatches. The envelope vector mutates 48
-signed transfer components and 56 signed withdrawal components.
+signed transfer components, 56 signed withdrawal components, and 9 signed
+recipient-call components.
 
 The gas derivation is recorded in
 [`devnet/vectors/2026-08-14-tight-gas-profile.md`](devnet/vectors/2026-08-14-tight-gas-profile.md).

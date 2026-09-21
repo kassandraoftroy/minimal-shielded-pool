@@ -186,7 +186,7 @@ def main():
     pub_w, proof_w = prove(ww, "withdraw")
 
     # Alice's change at leaf 2, same post-transfer root: a seed exit that can
-    # leave withdrawalCredit on the recipient without invalidating Bob's proof.
+    # leave a per-nullifier credit on the recipient without invalidating Bob's proof.
     cm_change = w.commitment(sk_a2, rho_a2, v_change)
     assert t2.leaves[2] == cm_change, "Alice's change is leaf 2"
     ins_seed = [{"sk": sk_a2, "rho": rho_a2, "value": v_change, "idx": 2}, w.dummy_input()]

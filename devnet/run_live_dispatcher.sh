@@ -177,6 +177,10 @@ if "recent_root_frame_gas" in manifest:
 if "claim_frame_gas" in manifest:
     cfg["claimGas"] = manifest["claim_frame_gas"]
     cfg["claimStateGas"] = manifest["claim_frame_state_gas"]
+if "recipient_frame_max_gas" in manifest:
+    cfg["recipientMaxGas"] = manifest["recipient_frame_max_gas"]
+    cfg["recipientMaxStateGas"] = manifest["recipient_frame_max_state_gas"]
+    cfg["recipientMaxData"] = manifest["recipient_frame_max_data"]
 with open("deploy_config.json", "w") as f:
     json.dump(cfg, f, indent=1)
 print("wrote deploy_config.json")
@@ -210,8 +214,8 @@ json.dump(cfg, open("deploy_config.json", "w"), indent=1)
 print(f"    withdraw root slot={sys.argv[1]}")
 PY
 
-  # Leave real withdrawalCredit on the recipient so the existing
-  # credit_before + publicAmount check is not vacuously 0 + publicAmount.
+  # Leave a real per-nullifier credit on the recipient so Bob's later claim
+  # cannot be a vacuous 0 + publicAmount check, and so isolation is observable.
   # Alice's change exits to the same recipient; sinks do not change the root.
   echo "==> seed prior credit (withdraw_seed claim expected to revert)"
   python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK" \
@@ -220,25 +224,50 @@ PY
   RECIPIENT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recipient"])' "$SMOKE_OUTPUT")
   SEED_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw_seed"]["public_amount"])' "$SMOKE_OUTPUT")
   PUBLIC_AMOUNT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw"]["public_amount"])' "$SMOKE_OUTPUT")
-  CREDIT_BEFORE=$(cast_uint "$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")")
+  SEED_NF=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw_seed"]["nf1"])' "$SMOKE_OUTPUT")
+  BOB_NF=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["withdraw"]["nf1"])' "$SMOKE_OUTPUT")
+  withdrawal_amount() {
+    python3 - "$POOL" "$1" "$RPC" <<'PY'
+import subprocess, sys
+out = subprocess.check_output(
+    ["cast", "call", sys.argv[1], "withdrawals(bytes32)(address,uint256)",
+     sys.argv[2], "--rpc-url", sys.argv[3]],
+    text=True,
+)
+lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+print(int(lines[-1].split()[0], 0))
+PY
+  }
+  CREDIT_BEFORE=$(withdrawal_amount "$SEED_NF")
   [[ "$CREDIT_BEFORE" == "$SEED_AMOUNT" && "$CREDIT_BEFORE" != 0 ]] || {
     echo "seed did not leave expected credit: got $CREDIT_BEFORE want $SEED_AMOUNT" >&2; exit 1; }
   cast send "$REJECTER" 'setReject(bool)' false --rpc-url "$RPC" --private-key "$DEPLOYER_PK" \
     "${PRICE[@]}" --gas-limit 100000 >/dev/null
   BEFORE=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
-  EXPECTED=$(python3 -c 'import sys; print(int(sys.argv[1]) + int(sys.argv[2]))' "$CREDIT_BEFORE" "$PUBLIC_AMOUNT")
-  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$EXPECTED wei including prior credit $CREDIT_BEFORE)"
+  echo "==> withdraw (shielded spend + claim, note -> recipient $RECIPIENT, expecting +$PUBLIC_AMOUNT wei for this id only)"
   python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" withdraw "$DEPLOYER_PK"
   AFTER=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
-  CREDIT_AFTER=$(cast_uint "$(cast call "$POOL" 'withdrawalCredit(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC")")
-  # Balances outgrow bash's 64-bit arithmetic after a few ETH, so subtract in python.
-  # claimWithdrawal pays all credit already held for the recipient, not just this
-  # spend's publicAmount.
+  BOB_CREDIT=$(withdrawal_amount "$BOB_NF")
+  SEED_CREDIT=$(withdrawal_amount "$SEED_NF")
   PAID=$(python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$AFTER" "$BEFORE")
-  [[ $PAID == "$EXPECTED" ]] || {
-    echo "withdraw paid $PAID wei to the recipient, expected $EXPECTED" >&2; exit 1; }
-  [[ $CREDIT_AFTER == 0 ]] || {
-    echo "recipient credit remaining after claim: $CREDIT_AFTER" >&2; exit 1; }
-  echo "    recipient +$PAID wei ($BEFORE -> $AFTER); credit $CREDIT_BEFORE -> 0"
+  [[ $PAID == "$PUBLIC_AMOUNT" ]] || {
+    echo "withdraw paid $PAID wei to the recipient, expected $PUBLIC_AMOUNT" >&2; exit 1; }
+  [[ $BOB_CREDIT == 0 ]] || {
+    echo "Bob credit remaining after claim: $BOB_CREDIT" >&2; exit 1; }
+  [[ $SEED_CREDIT == "$SEED_AMOUNT" ]] || {
+    echo "seed credit was taken by Bob's claim: $SEED_CREDIT" >&2; exit 1; }
+  echo "    recipient +$PAID wei ($BEFORE -> $AFTER); Bob id cleared; seed id still $SEED_CREDIT"
+  echo "==> recover seed credit with standalone claimWithdrawal(seed nf1)"
+  SEED_BEFORE=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
+  cast send "$POOL" 'claimWithdrawal(bytes32)' "$SEED_NF" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" \
+    "${PRICE[@]}" --gas-limit 200000 >/dev/null
+  SEED_AFTER=$(cast_uint "$(cast balance "$RECIPIENT" --rpc-url "$RPC")")
+  SEED_PAID=$(python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$SEED_AFTER" "$SEED_BEFORE")
+  SEED_LEFT=$(withdrawal_amount "$SEED_NF")
+  [[ $SEED_PAID == "$SEED_AMOUNT" ]] || {
+    echo "seed claim paid $SEED_PAID wei, expected $SEED_AMOUNT" >&2; exit 1; }
+  [[ $SEED_LEFT == 0 ]] || {
+    echo "seed credit remaining after standalone claim: $SEED_LEFT" >&2; exit 1; }
+  echo "    seed recovered +$SEED_PAID wei; both ids cleared"
   echo "==> spends settled"
 fi

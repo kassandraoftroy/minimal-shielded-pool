@@ -24,7 +24,12 @@ contract ShieldedPoolLogic {
     uint32 public nextIndex; // slot 21
     bytes32 public currentRoot; // slot 22
     mapping(bytes32 => bool) public isLeaf; // slot 23, global across epochs
-    mapping(address => uint256) public withdrawalCredit; // slot 24
+
+    struct Withdrawal {
+        address recipient;
+        uint256 amount;
+    }
+    mapping(bytes32 => Withdrawal) public withdrawals; // slot 24, keyed by spend nf1
     uint64 public currentEpoch; // slot 25
     mapping(uint64 => bytes32) public finalRoot; // slot 26
 
@@ -47,8 +52,8 @@ contract ShieldedPoolLogic {
     event NoteSpent(bytes32 indexed nf);
     event EpochRolled(uint64 indexed closedEpoch, bytes32 finalRoot, uint64 indexed newEpoch);
     event RootPublished(uint64 indexed epoch, bytes32 indexed source, bytes32 root);
-    event WithdrawalCredited(address indexed recipient, uint256 amount);
-    event Withdrawn(address indexed recipient, uint256 amount);
+    event WithdrawalCredited(bytes32 indexed id, address indexed recipient, uint256 amount);
+    event Withdrawn(bytes32 indexed id, address indexed recipient, uint256 amount);
 
     error DirectImplementationCall();
     error ZeroValueShield();
@@ -151,8 +156,9 @@ contract ShieldedPoolLogic {
         }
 
         if (s.publicAmount != 0) {
-            withdrawalCredit[s.recipient] += s.publicAmount;
-            emit WithdrawalCredited(s.recipient, s.publicAmount);
+            if (withdrawals[s.nf1].amount != 0) revert InvalidSettlementShape();
+            withdrawals[s.nf1] = Withdrawal(s.recipient, s.publicAmount);
+            emit WithdrawalCredited(s.nf1, s.recipient, s.publicAmount);
         }
     }
 
@@ -172,12 +178,12 @@ contract ShieldedPoolLogic {
         emit RootPublished(epoch, sourceId(epoch), root);
     }
 
-    function claimWithdrawal(address payable who) external onlyDelegate {
-        uint256 amount = withdrawalCredit[who];
-        if (amount == 0) revert NoCredit();
-        withdrawalCredit[who] = 0;
-        emit Withdrawn(who, amount);
-        (bool ok,) = who.call{value: amount}("");
+    function claimWithdrawal(bytes32 id) external onlyDelegate {
+        Withdrawal memory w = withdrawals[id];
+        if (w.amount == 0) revert NoCredit();
+        delete withdrawals[id];
+        emit Withdrawn(id, w.recipient, w.amount);
+        (bool ok,) = payable(w.recipient).call{value: w.amount}("");
         if (!ok) revert PayoutFailed();
     }
 

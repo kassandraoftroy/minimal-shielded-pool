@@ -6,8 +6,8 @@
     "label": "single-party disposable testbed"
   },
   "profile": {
-    "wire_profile": "recipient-pull-v1",
-    "pool_profile": "recipient-pull-v1",
+    "wire_profile": "recipient-pull-v2",
+    "pool_profile": "recipient-pull-v2",
     "eip_8250_merge": "f3079a09e8c606afcb0e5e1a309ff228b88dc067",
     "eip_8272_carrier": "canonical-verifier-frame",
     "eip_8272_pin": "824cbc0b0e",
@@ -23,11 +23,14 @@
     "eip_8141_public_mempool_budget": 100000,
     "hegota_profile_2_budget": 1048576,
     "settle_frame_gas": 1400000,
-    "settle_frame_state_gas": 550000,
+    "settle_frame_state_gas": 650000,
     "claim_frame_gas": 100000,
     "claim_frame_state_gas": 183600,
-    "conservative_settle_bound": 1231926,
-    "conservative_settle_state_bound": 489600
+    "recipient_frame_max_gas": 14000000,
+    "recipient_frame_max_state_gas": 14000000,
+    "recipient_frame_max_data": 32768,
+    "conservative_settle_bound": 1244026,
+    "conservative_settle_state_bound": 587520
   },
   "artifacts": {
     "build/spend.r1cs": "8b07031680a6d86e9261f64291e398ad9031abb09dcdf3f1d7ca86735847d15e",
@@ -35,12 +38,12 @@
     "build/spend_js/spend.wasm": "4935c11e3be2309af2b6bf6fa9821eaaaf41ffd481716483d0f28b73ed363a2b",
     "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
     "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
-    "contracts/src/ShieldedPoolLogic.sol": "7c05d484877146222ff1250e625ecb1d819c7aa409091a1affc41443f762cd5b",
-    "devnet/ShieldedPoolDispatcher.yul": "7b2a97c19eb7348dd6dfb60f1bef6eba7f255af647b7adf47a4bd7a20e550be9",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "1ed5d7838aab55ea2e86a93079dba752546b6ffb82ca1f2404cc27357b3d07f2",
+    "contracts/src/ShieldedPoolLogic.sol": "afc86935132d068bef64a7db860627e560e35268bcf127b97b209bd722974a23",
+    "devnet/ShieldedPoolDispatcher.yul": "888d67d11e73a8f42d1ef7dc5b47117bb679be00d18c308a8a0cdd81cc0fd369",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "867e99820a518f6d7e685e3ae00c37a5ac949e713bae43e11aa9e915bbb7faf2",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "49f5a3964ea7f64b103d3e3f71940dba41799628caca90c6997e8683cfed7043",
-    "devnet/pool_frametx.py": "93428ddcfb2d5c7f6bad2c7fc33f421d966c5aa0c5e113a9a9a993c3a975469f",
-    "tooling/check_gas_profile.py": "190b9a52db02ffd64f932ee1c23c7c4a08a67c2f7c7f5a8c269393b1a9ed00ec"
+    "devnet/gas_profile.py": "152a7022e1184f4bd83b8b14ca6b625881660b0a94984dfd094cfb535d8f44be",
+    "devnet/pool_frametx.py": "c56db43cee1f699b9d57c2a2e0df11de4ab4e0d3772e9e0a816d0838be2fa310",
+    "tooling/check_gas_profile.py": "6327c490cb45f2a07db52c12fd93990d22c59a520078f25dc8532f84fbbb99c3"
   }
 }

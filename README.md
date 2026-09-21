@@ -28,10 +28,19 @@ Private transfers use three frames. Public withdrawals add a fourth:
 2. `VERIFY(pool, proof)`, which verifies the proof and exact envelope, then
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
-4. When `publicAmount` is nonzero, `DEFAULT(pool, claimWithdrawal(recipient))`.
-   Anyone can call `claimWithdrawal`, so this frame does not use `SENDER`.
-   If it fails, the credit created by settlement remains and can be claimed
-   later. Standalone `claimWithdrawal` remains for leftover credits.
+4. When `publicAmount` is nonzero, a fourth `DEFAULT` frame. It is never
+   `SENDER`. Two shapes are admitted:
+   - exact `DEFAULT(pool, claimWithdrawal(nf1))`, pinned at 100k / 183,600 / 36
+     bytes. Anyone can call `claimWithdrawal`; payout always goes to the
+     recipient recorded at settlement, not the caller.
+   - `DEFAULT(settle.recipient, settleWithdrawal(nf1, extra))` under leftover
+     FrameTx caps (14M / 14M / 32KB). Wallets must declare **measured** limits.
+     Declaring both 14M ceilings in one transaction exceeds the EIP-7825 `2^24`
+     per-tx gas cap. Unused `fee - actual_gas_cost` stays in the pool.
+   If the fourth frame fails, the credit created by settlement remains keyed by
+   that spend's `nf1` and can be claimed later. Standalone `claimWithdrawal(nf1)`
+   remains for leftover credits. Credits are not pooled across spends even when
+   they share a recipient.
 
 The proof chooses a fresh secp256k1 authorizer. Its sole EIP-8141 empty-message
 signature covers the canonical hash of the complete transaction, including
@@ -49,7 +58,8 @@ timestamp reconstruction is rejected.
 Settlement never publishes a root or calls a recipient. It rolls to a fresh
 Merkle epoch before inserting outputs when capacity is insufficient. The two
 zero sinks consume no capacity, so an exit remains possible at a full tree.
-Withdrawals are pull credits claimed by the optional fourth frame. Root publication is
+Withdrawals are per-spend pull credits (`withdrawals[nf1]`) claimed by the
+optional fourth frame. Root publication is
 a separate permissionless call that reads only the active or finalized root
 stored by the pool.
 
@@ -84,7 +94,7 @@ nested them, so the correction confirms the shape rather than changing it. Every
 spend gives its proof frame `195,840` state gas to create its two nullifier
 keys, and leads with a `30,000`-gas recent-root verifier frame that counts
 toward the public mempool's verify budget. The gas schedule is recorded in the
-testbed activation manifest, wire profile `recipient-pull-v1`.
+testbed activation manifest, wire profile `recipient-pull-v2`.
 
 This profile targets the chain 8141 testnet's next re-genesis, which moves the
 node to those revisions; the chain launched on September 3 runs the older

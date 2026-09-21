@@ -11,16 +11,25 @@ verify budget.
 # dispatcher like every other budget: unpinned, it is the pool's money.
 RECENT_ROOT_FRAME_GAS = 30_000
 RECENT_ROOT_TUPLE_BYTES = 72
-POOL_PROFILE = "recipient-pull-v1"
+POOL_PROFILE = "recipient-pull-v2"
 VERIFY_FRAME_GAS = 320_000
 SETTLE_FRAME_GAS = 1_400_000
-SETTLE_FRAME_STATE_GAS = 550_000
-# Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal. On native
-# ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716 execution
-# gas and 183,600 state gas. Boundary tests lower each limit by one.
+# withdrawals[nf1] writes two words (recipient, amount) instead of one address
+# bucket, so the worst-shape spend grows six slots. 6 * 64 * 1530 = 587,520.
+SETTLE_FRAME_STATE_GAS = 650_000
+# Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal(bytes32). On
+# native ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716
+# execution gas and 183,600 state gas. Boundary tests lower each limit by one.
 CLAIM_FRAME_GAS = 100_000
 CLAIM_FRAME_STATE_GAS = 183_600
 CLAIM_WITHDRAWAL_CALLDATA = 36
+# Dual-target leftover: DEFAULT(settle.recipient, settleWithdrawal(nf1, extra)).
+# gt caps, not pins. Declaring both 14M ceilings in one tx exceeds EIP-7825's
+# 2^24 per-tx gas cap; wallets must declare measured limits. Unused
+# fee - actual_gas_cost stays in the pool.
+RECIPIENT_FRAME_MAX_GAS = 14_000_000
+RECIPIENT_FRAME_MAX_STATE_GAS = 14_000_000
+RECIPIENT_FRAME_MAX_DATA = 32_768
 
 STATE_BYTES_PER_STORAGE_SET = 64
 CPSB = 1_530

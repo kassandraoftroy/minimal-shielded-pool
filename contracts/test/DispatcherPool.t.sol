@@ -15,13 +15,13 @@ interface IPool {
     function shield(bytes32 inner) external payable returns (uint32);
     function settle(ShieldedPoolLogic.Spend calldata s) external;
     function publishEpochRoot(uint64 epoch) external;
-    function claimWithdrawal(address payable who) external;
+    function claimWithdrawal(bytes32 id) external;
     function currentRoot() external view returns (bytes32);
     function currentEpoch() external view returns (uint64);
     function nextIndex() external view returns (uint32);
     function finalRoot(uint64) external view returns (bytes32);
     function isLeaf(bytes32) external view returns (bool);
-    function withdrawalCredit(address) external view returns (uint256);
+    function withdrawals(bytes32) external view returns (address recipient, uint256 amount);
     function domain() external view returns (bytes32);
     function sourceId(uint64) external view returns (bytes32);
 }
@@ -151,6 +151,10 @@ contract DispatcherPoolTest {
         proxy.settleAsSelf(s);
     }
 
+    function _credited(IPool p, bytes32 id) internal view returns (uint256 amount) {
+        (, amount) = p.withdrawals(id);
+    }
+
     function test_direct_implementation_calls_are_rejected() public {
         vm.expectRevert(ShieldedPoolLogic.DirectImplementationCall.selector);
         logic.shield{value: 1}(bytes32(uint256(3)));
@@ -184,10 +188,10 @@ contract DispatcherPoolTest {
     /// 2,000,000 budget and nothing else. Under the updated EIP-8141 the same settlement is
     /// declared as two budgets — execution and state — and forge cannot model that split:
     /// the SSTOREs it counts here are charged to the state pool on chain, not to execution.
-    /// The updated profile's caps are checked by tooling/check_gas_profile.py, whose two
-    /// bounds sum to exactly the single bound this profile uses (1,231,926 + 489,600 =
-    /// 1,721,526), so they are a repartition of this same measured worst case rather than a
-    /// separate estimate.
+    /// The updated profile's caps are checked by tooling/check_gas_profile.py.
+    /// v2's extra withdrawals[nf1] word adds one SSTORE and one new slot over
+    /// the frozen 1,721,526 single-dimension bound (1,244,026 + 587,520 =
+    /// 1,831,546).
     function test_two_million_gas_covers_heaviest_reachable_settlement_shape() public {
         address t3 = address(0xA013);
         address t4 = address(0xA014);
@@ -218,7 +222,7 @@ contract DispatcherPoolTest {
         require(actualPool.currentEpoch() == 1, "epoch did not roll");
         require(actualPool.finalRoot(0) == oldRoot, "final root missing");
         require(actualPool.nextIndex() == 2, "outputs missing");
-        require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "credit missing");
+        require(_credited(actualPool, s.nf1) == 7, "credit missing");
     }
 
     function test_settlement_does_not_call_recent_root_predeploy() public {
@@ -245,7 +249,7 @@ contract DispatcherPoolTest {
         _settle(s);
         require(pool.currentEpoch() == 0, "exit rolled epoch");
         require(pool.nextIndex() == 1 << 20, "exit consumed capacity");
-        require(pool.withdrawalCredit(address(0xB0B)) == 5 ether, "credit missing");
+        require(_credited(pool, s.nf1) == 5 ether, "credit missing");
     }
 
     function test_invalid_sink_positions_and_duplicate_outputs_reject() public {
@@ -281,13 +285,33 @@ contract DispatcherPoolTest {
         ShieldedPoolLogic.Spend memory s = _spend(SINK_0, SINK_1, 2 ether, address(rejecter));
         _settle(s);
         vm.expectRevert(ShieldedPoolLogic.PayoutFailed.selector);
-        pool.claimWithdrawal(payable(address(rejecter)));
-        require(pool.withdrawalCredit(address(rejecter)) == 2 ether, "credit was lost");
+        pool.claimWithdrawal(s.nf1);
+        require(_credited(pool, s.nf1) == 2 ether, "credit was lost");
         rejecter.setReject(false);
         uint256 before = address(rejecter).balance;
-        pool.claimWithdrawal(payable(address(rejecter)));
-        require(pool.withdrawalCredit(address(rejecter)) == 0, "credit remained");
+        pool.claimWithdrawal(s.nf1);
+        require(_credited(pool, s.nf1) == 0, "credit remained");
         require(address(rejecter).balance == before + 2 ether, "payout missing");
+    }
+
+    function test_claim_is_isolated_per_nullifier() public {
+        address recipient = address(0xB0B);
+        ShieldedPoolLogic.Spend memory a = _spend(SINK_0, SINK_1, 1 ether, recipient);
+        ShieldedPoolLogic.Spend memory b = _spend(bytes32(uint256(201)), bytes32(uint256(202)), 2 ether, recipient);
+        b.nf1 = bytes32(uint256(21));
+        b.nf2 = bytes32(uint256(22));
+        _settle(a);
+        _settle(b);
+
+        uint256 before = recipient.balance;
+        pool.claimWithdrawal(a.nf1);
+        require(recipient.balance == before + 1 ether, "paid the wrong id");
+        require(_credited(pool, a.nf1) == 0, "A remained");
+        require(_credited(pool, b.nf1) == 2 ether, "B was taken");
+
+        pool.claimWithdrawal(b.nf1);
+        require(recipient.balance == before + 3 ether, "B payout missing");
+        require(_credited(pool, b.nf1) == 0, "B remained");
     }
 
     function test_epoch_sources_are_distinct_but_nullifier_domain_is_stable() public view {

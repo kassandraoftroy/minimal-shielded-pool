@@ -153,7 +153,8 @@ object "ShieldedPoolDispatcher" {
 
             function verifyFrameApprove() {
                 // Three frames for private transfers; four when publicAmount is
-                // nonzero. The fourth frame is never SENDER: an exact DEFAULT claim.
+                // nonzero. The fourth frame is never SENDER: DEFAULT claim of
+                // this spend's nf1, or settleWithdrawal on the proof recipient.
                 if iszero(eq(txParam(0x02), address())) { fail(errShape()) }
                 if iszero(eq(txParam(0x09), add(3, iszero(iszero(frameDataLoad(2, 260)))))) { fail(errShape()) }
                 if iszero(eq(txParam(0x0A), 1)) { fail(errShape()) }
@@ -200,31 +201,41 @@ object "ShieldedPoolDispatcher" {
                 // Frame 2: the single settlement call, with fork-profile gas.
                 if iszero(eq(frameParam(2, 0x00), address())) { fail(errShape()) }
                 if iszero(eq(frameParam(2, 0x01), 1400000)) { fail(errShape()) }
-                // Settlement's state growth is bounded at five new slots
-                // (finalized root, epoch counter, two leaf markers, one withdrawal
-                // credit); 550000 covers 5 * 64 * 1530 with margin. Pinned for the
-                // same reason as the execution budget: unpinned, it is the pool's
-                // money.
-                if iszero(eq(frameParam(2, 0x09), 550000)) { fail(errShape()) }
+                // Settlement's state growth is bounded at six new slots
+                // (finalized root, epoch counter, two leaf markers, and the two
+                // words of withdrawals[nf1]); 650000 covers 6 * 64 * 1530 with
+                // margin. Pinned for the same reason as the execution budget:
+                // unpinned, it is the pool's money.
+                if iszero(eq(frameParam(2, 0x09), 650000)) { fail(errShape()) }
                 if iszero(eq(frameParam(2, 0x02), 2)) { fail(errShape()) }
                 if frameParam(2, 0x03) { fail(errShape()) }
                 if iszero(eq(frameParam(2, 0x04), 388)) { fail(errShape()) }
                 if frameParam(2, 0x08) { fail(errShape()) }
                 if iszero(eq(shr(224, frameDataLoad(2, 0)), 0x921fcac7)) { fail(errShape()) }
 
-                // Frame 3: DEFAULT claimWithdrawal. Present only for withdrawals.
-                // Anyone can call claimWithdrawal, so this frame does not need
-                // SENDER authority. Settlement remains the only SENDER frame.
+                // Frame 3: DEFAULT only. Present for withdrawals. Never SENDER.
+                // Pool target: exact claimWithdrawal(nf1).
+                // Proof recipient: settleWithdrawal(nf1, extra) under leftover caps.
                 if frameDataLoad(2, 260) {
-                    if iszero(eq(frameParam(3, 0x00), address())) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x01), 100000)) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x09), 183600)) { fail(errShape()) }
                     if frameParam(3, 0x02) { fail(errShape()) }
                     if frameParam(3, 0x03) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x04), 36)) { fail(errShape()) }
                     if frameParam(3, 0x08) { fail(errShape()) }
-                    if iszero(eq(shr(224, frameDataLoad(3, 0)), 0xa3066aab)) { fail(errShape()) }
-                    if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 324))) { fail(errShape()) }
+                    switch eq(frameParam(3, 0x00), address())
+                    case 1 {
+                        if iszero(eq(frameParam(3, 0x01), 100000)) { fail(errShape()) }
+                        if iszero(eq(frameParam(3, 0x09), 183600)) { fail(errShape()) }
+                        if iszero(eq(frameParam(3, 0x04), 36)) { fail(errShape()) }
+                        if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x8e88eccc)) { fail(errShape()) }
+                        if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 132))) { fail(errShape()) }
+                    }
+                    default {
+                        if iszero(eq(frameParam(3, 0x00), frameDataLoad(2, 324))) { fail(errShape()) }
+                        if gt(frameParam(3, 0x01), 14000000) { fail(errShape()) }
+                        if gt(frameParam(3, 0x09), 14000000) { fail(errShape()) }
+                        if gt(frameParam(3, 0x04), 32768) { fail(errShape()) }
+                        if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x2b18720c)) { fail(errShape()) }
+                        if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 132))) { fail(errShape()) }
+                    }
                 }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.

@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT / "devnet"))
 from gas_profile import (  # noqa: E402
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
+    RECIPIENT_FRAME_MAX_DATA,
+    RECIPIENT_FRAME_MAX_GAS,
+    RECIPIENT_FRAME_MAX_STATE_GAS,
     HEGOTA_TESTNET_MAX_VERIFY_GAS,
     KEYED_NONCE_FIRST_USE_STATE_GAS,
     MAX_VERIFY_STATE_GAS,
@@ -60,11 +63,11 @@ CONSERVATIVE_VERIFY_STATE_BOUND = (
     SPEND_NONCE_KEY_COUNT * KEYED_NONCE_FIRST_USE_STATE_GAS
 )
 
-# Rollover + two outputs + a first withdrawal credit performs at most 33 SSTORE operations.
-# Five end in previously absent slots: finalized root, epoch counter, two leaf markers, and
-# the withdrawal credit. Only those five grow the state.
-MAX_SSTORE_OPERATIONS = 33
-MAX_NEW_STORAGE_SLOTS = 5
+# Rollover + two outputs + a first withdrawal credit performs at most 34 SSTORE
+# operations. Six end in previously absent slots: finalized root, epoch counter,
+# two leaf markers, and the two words of withdrawals[nf1].
+MAX_SSTORE_OPERATIONS = 34
+MAX_NEW_STORAGE_SLOTS = 6
 
 LOCAL_WORST_SETTLEMENT_GAS = 832_626
 # EIP-8038: cold access (2,100) + STORAGE_WRITE (10,000).
@@ -110,8 +113,12 @@ def main():
     pre_pr_12279_split = declared_split - CONSERVATIVE_VERIFY_STATE_BOUND
     pre_pr_12279_saving = declared_single - pre_pr_12279_split
     extra_over_frozen = declared_split - declared_single
-    assert pre_pr_12279_saving == 50_000
-    assert extra_over_frozen == 145_840
+    # v1's settlement state pin was 550,000. v2 adds 100,000 for the extra
+    # withdrawals[nf1] word; that delta is independent of the keyed-nonce split.
+    withdrawal_struct_state_pin_delta = SETTLE_FRAME_STATE_GAS - 550_000
+    assert withdrawal_struct_state_pin_delta == 100_000
+    assert pre_pr_12279_saving == 50_000 - withdrawal_struct_state_pin_delta
+    assert extra_over_frozen == 145_840 + withdrawal_struct_state_pin_delta
     assert extra_over_frozen == CONSERVATIVE_VERIFY_STATE_BOUND - pre_pr_12279_saving
 
     # The dispatcher must enforce the same five limits the wallet emits. Yul
@@ -125,6 +132,11 @@ def main():
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x01), {CLAIM_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(3, 0x09), {CLAIM_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x01), {RECIPIENT_FRAME_MAX_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x09), {RECIPIENT_FRAME_MAX_STATE_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x04), {RECIPIENT_FRAME_MAX_DATA}) {{ fail(errShape()) }}",
+        "if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x8e88eccc)) { fail(errShape()) }",
+        "if iszero(eq(shr(224, frameDataLoad(3, 0)), 0x2b18720c)) { fail(errShape()) }",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"
@@ -140,6 +152,9 @@ def main():
     assert cfg["settleStateGas"] == SETTLE_FRAME_STATE_GAS
     assert cfg["claimGas"] == CLAIM_FRAME_GAS
     assert cfg["claimStateGas"] == CLAIM_FRAME_STATE_GAS
+    assert cfg["recipientMaxGas"] == RECIPIENT_FRAME_MAX_GAS
+    assert cfg["recipientMaxStateGas"] == RECIPIENT_FRAME_MAX_STATE_GAS
+    assert cfg["recipientMaxData"] == RECIPIENT_FRAME_MAX_DATA
 
     print(json.dumps({
         "verify": {

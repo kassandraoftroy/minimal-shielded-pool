@@ -32,7 +32,7 @@ def root_tuple(source, slot, root):
     return source + slot.to_bytes(8, "big") + root
 
 
-def _signed(entry_key):
+def _signed(entry_key, recipient_call=None):
     fixture = json.loads(FIXTURE.read_text())
     entry = copy.deepcopy(fixture[entry_key])
     entry["root_slot"] = "1"
@@ -51,7 +51,7 @@ def _signed(entry_key):
         Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
               state_limit=SETTLE_FRAME_STATE_GAS),
     ]
-    tail = claim_frame(pool, settle)
+    tail = claim_frame(pool, settle, recipient_call=recipient_call)
     if tail is not None:
         frames.append(tail)
     tx = FrameTx(
@@ -137,8 +137,32 @@ def claim_mutations(tx):
     add("claim_value", lambda x: setattr(x.frames[3], "value", 1))
     add("claim_selector", lambda x: setattr(
         x.frames[3], "data", bytes([x.frames[3].data[0] ^ 1]) + x.frames[3].data[1:]))
-    add("claim_recipient", lambda x: setattr(
+    add("claim_id", lambda x: setattr(
         x.frames[3], "data", x.frames[3].data[:-1] + bytes([x.frames[3].data[-1] ^ 1])))
+    return mutations
+
+
+def recipient_call_mutations(tx):
+    mutations = []
+
+    def add(name, fn):
+        candidate = copy.deepcopy(tx)
+        fn(candidate)
+        mutations.append((name, candidate))
+
+    add("recipient_call_mode", lambda x: setattr(x.frames[3], "mode", 2))
+    add("recipient_call_flags", lambda x: setattr(x.frames[3], "flags", 1))
+    add("recipient_call_target", lambda x: setattr(x.frames[3], "target", x.frames[3].target ^ 1))
+    add("recipient_call_gas", lambda x: setattr(x.frames[3], "gas_limit", x.frames[3].gas_limit + 1))
+    add("recipient_call_state_gas", lambda x: setattr(
+        x.frames[3], "state_limit", x.frames[3].state_limit + 1))
+    add("recipient_call_value", lambda x: setattr(x.frames[3], "value", 1))
+    add("recipient_call_selector", lambda x: setattr(
+        x.frames[3], "data", bytes([x.frames[3].data[0] ^ 1]) + x.frames[3].data[1:]))
+    add("recipient_call_id", lambda x: setattr(
+        x.frames[3], "data",
+        x.frames[3].data[:4] + bytes([x.frames[3].data[4] ^ 1]) + x.frames[3].data[5:]))
+    add("recipient_call_extra", lambda x: setattr(x.frames[3], "data", x.frames[3].data + b"\x00"))
     return mutations
 
 
@@ -166,14 +190,29 @@ def main():
     withdraw, withdraw_auth = _signed("withdraw")
     assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT claim frame"
     assert withdraw.frames[3].mode == 0, "claim frame is DEFAULT"
+    fixture = json.loads(FIXTURE.read_text())
+    nf1 = bytes.fromhex(fixture["withdraw"]["nf1"][2:])
+    assert withdraw.frames[3].data == keccak(b"claimWithdrawal(bytes32)")[:4] + nf1
     withdraw_mutations = common_mutations(withdraw) + claim_mutations(withdraw)
     assert_unbound(withdraw, withdraw_auth, withdraw_mutations)
+
+    extra = b"\x11\x22"
+    recipient_tx, recipient_auth = _signed(
+        "withdraw", recipient_call=(extra, 1_000_000, 500_000))
+    assert len(recipient_tx.frames) == 4, "recipient-call withdrawals stay at four frames"
+    assert recipient_tx.frames[3].mode == 0, "recipient-call frame is DEFAULT"
+    assert recipient_tx.frames[3].target == int(fixture["withdraw"]["recipient"], 16)
+    assert recipient_tx.frames[3].data[4:36] == nf1
+    assert recipient_tx.frames[3].data[:4] == keccak(b"settleWithdrawal(bytes32,bytes)")[:4]
+    recipient_mutations = recipient_call_mutations(recipient_tx)
+    assert_unbound(recipient_tx, recipient_auth, recipient_mutations)
 
     print(json.dumps({"transfer_frames": 3,
                       "withdraw_frames": 4,
                       "claim_mode": 0,
                       "bound_mutations_transfer": len(transfer_mutations),
                       "bound_mutations_withdraw": len(withdraw_mutations),
+                      "bound_mutations_recipient_call": len(recipient_mutations),
                       "raw_signature_elision_only": True,
                       "proof_bytes_bound": True,
                       "settlement_words_bound": 12}, sort_keys=True))
