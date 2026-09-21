@@ -24,12 +24,12 @@ upgrade to that format requires a new immutable pool profile and deployment.
 
 The pool holds native ETH. Notes, fees, withdrawals, and payer costs are all
 wei-denominated. The pool is the EIP-8141 sender and payer. There is no
-sponsorship or caller-selected fee recipient.
+external paymaster or caller-selected fee recipient.
 
 The circuit selects a fresh nonzero secp256k1 authorizer. EIP-8141 validates
 its canonical low-s signature over the complete FrameTx hash. The dispatcher
 requires that recovered signer through `SIGPARAM`, one signature, a three-frame
-transfer grammar or a four-frame withdrawal grammar, the complete two-key
+transfer grammar or a four-frame withdrawal or generic-tail grammar, the complete two-key
 EIP-8250 nonce set, and the exact EIP-8272 tuple proven by the leading
 recent-root verifier frame. A copied or rerandomized proof cannot be rewrapped
 without the one-time private key.
@@ -41,10 +41,12 @@ could revert settlement after consuming the input keys. Position-bound
 nullifiers let settlement append that separately funded occurrence instead.
 This removes the duplicate failure path; arbitrary post-approval failures
 remain unsafe, so the supported settlement gas bounds are still load-bearing.
-A failed claim frame does not undo settlement. If the recipient reverts or the
-claim runs out of gas, the credit created by frame 2 remains and can be claimed
-later. The implementation does not allow caller-chosen post-approval calls. Its
-required Poseidon operations use fixed-code
+A failed tail frame does not undo settlement. If a withdrawal tail reverts or
+runs out of gas, the credit created by frame 2 remains on `recipient` and can
+be claimed later. The optional generic tail is outside settlement's failure
+scope. Its execution, state gas and calldata are capped, and the proof-bound
+fee must cover the complete transaction's maximum cost. Required Poseidon
+operations use fixed-code
 static calls to two immutable, deployment-verified libraries. The 2M execution
 and 550k state budgets must be re-proved before every gas repricing fork.
 
@@ -79,6 +81,45 @@ the credit.
 The Solidity implementation rejects direct state-changing calls. The immutable
 dispatcher owns funds and storage. Deployment verifies the verifier,
 dispatcher, logic, and both Poseidon runtimes before the pool is used.
+
+## Generic DEFAULT tail
+
+A spend may append one `DEFAULT` frame whose target and calldata are chosen by
+the note authorizer and bound by the complete transaction signature. The frame
+has zero value and flags, cannot target the zero address, and is limited to
+10,000,000 execution gas, 10,000,000 state gas and 32,768 calldata bytes.
+Wallets default the tail to the old `claimWithdrawal` budgets (100,000
+execution / 183,600 state) and only raise gas for a custom target or
+calldata. Wallets must declare measured limits; both 10M ceilings in one
+transaction exceed EIP-7825's `2^24` per-tx gas cap. Settlement remains the
+only `SENDER` frame. Withdrawals require this fourth frame;
+zero-withdrawal spends may keep three frames. A zero-withdrawal tail cannot
+target the pool. A withdrawal tail may target the pool so
+`DEFAULT(pool, claimWithdrawal(recipient))` remains valid.
+
+`recipient` is the payout key, not the frame target. `claimWithdrawal(who)`
+always pays `who`. Anyone can still call `claimWithdrawal` later. The authorizer
+does not have to pull the credit in the tail; a later standalone claim remains.
+
+The account sees EIP-8141's shared entry point (`0xaa`) as its caller, not
+the pool or the account owner. Trusting that caller alone would let any frame
+transaction operate the account. The account must independently authenticate
+its owner's action and prevent replay. The pool's proof-selected authorizer
+only authorizes spending the shielded notes and paying gas.
+
+A wallet must select an execution path compatible with this call. Supporting
+EIP-8141, EIP-7702 or ERC-4337 does not by itself establish compatibility.
+
+After successful settlement, a failed tail still spends the input notes
+and pays fees; private change outputs and any withdrawal credit remain. The
+wallet must inspect the individual frame receipts and must not retry the
+consumed spend. An independently submitted account signature may execute
+before the pool transaction unless its authorization also binds the intended
+execution context.
+
+The existing settlement-failure blocker above is unchanged. An account that
+requires settlement to succeed must verify that status before acting. This
+extension neither repairs that blocker nor provides full-spend atomicity.
 
 ## Assumptions and remaining gates
 
@@ -121,7 +162,8 @@ direct-call rejection, valid proof verification, coordinate aliases, infinity,
 and authorizer mutation. The circuit generator rejects same-note inputs,
 duplicate outputs, dummy-only spends, wrong sinks, sink-valued positive outputs,
 zero authorizers, and recipient mismatches. The envelope vector mutates 48
-signed transfer components and 56 signed withdrawal components.
+signed transfer components, 56 signed withdrawal components, 57 signed
+gas-only tails, and 57 signed custom withdrawal tails.
 
 The position-bound note suite passes 20 native scenarios using 23 real Groth16
 proofs, plus two client-policy tests. It covers duplicate deposits and outputs,

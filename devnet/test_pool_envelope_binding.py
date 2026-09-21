@@ -9,6 +9,8 @@ from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
 from pool_frametx import (
+    ACTION_FRAME_MAX_GAS,
+    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
     RECENT_ROOT_ADDRESS,
@@ -19,9 +21,9 @@ from pool_frametx import (
     VERIFY_FRAME_GAS,
     VERIFY_FRAME_STATE_GAS,
     cast_calldata,
-    claim_frame,
     proof_bytes,
     spend_args,
+    spend_tail_frame,
 )
 
 HERE = Path(__file__).parent
@@ -32,7 +34,7 @@ def root_tuple(source, slot, root):
     return source + slot.to_bytes(8, "big") + root
 
 
-def _signed(entry_key):
+def _signed(entry_key, action=None):
     fixture = json.loads(FIXTURE.read_text())
     entry = copy.deepcopy(fixture[entry_key])
     entry["root_slot"] = "1"
@@ -51,7 +53,7 @@ def _signed(entry_key):
         Frame(2, 0, pool, SETTLE_FRAME_GAS, 0, settle,
               state_limit=SETTLE_FRAME_STATE_GAS),
     ]
-    tail = claim_frame(pool, settle)
+    tail = spend_tail_frame(pool, settle, action)
     if tail is not None:
         frames.append(tail)
     tx = FrameTx(
@@ -142,6 +144,27 @@ def claim_mutations(tx):
     return mutations
 
 
+def action_mutations(tx):
+    mutations = []
+
+    def add(name, fn):
+        candidate = copy.deepcopy(tx)
+        fn(candidate)
+        mutations.append((name, candidate))
+
+    add("action_mode", lambda x: setattr(x.frames[3], "mode", 2))
+    add("action_flags", lambda x: setattr(x.frames[3], "flags", 1))
+    add("action_target", lambda x: setattr(x.frames[3], "target", x.frames[3].target ^ 1))
+    add("action_gas", lambda x: setattr(x.frames[3], "gas_limit", x.frames[3].gas_limit - 1))
+    add("action_state_gas", lambda x: setattr(
+        x.frames[3], "state_limit", x.frames[3].state_limit - 1))
+    add("action_value", lambda x: setattr(x.frames[3], "value", 1))
+    add("action_calldata", lambda x: setattr(x.frames[3], "data", x.frames[3].data + b"\x00"))
+    add("action_removed", lambda x: x.frames.pop())
+    add("action_duplicated", lambda x: x.frames.append(copy.deepcopy(x.frames[3])))
+    return mutations
+
+
 def assert_unbound(tx, authorizer, mutations):
     original_hash = tx.sig_hash()
     original_signature = tx.signatures[0].signature
@@ -163,17 +186,42 @@ def main():
     transfer_mutations = common_mutations(transfer)
     assert_unbound(transfer, transfer_auth, transfer_mutations)
 
+    action = {
+        "target": 0xA11CE,
+        "data": bytes.fromhex("12345678") + b"owner-authorized-action",
+        "gas_limit": ACTION_FRAME_MAX_GAS,
+        "state_limit": ACTION_FRAME_MAX_STATE_GAS,
+    }
+    action_tx, action_auth = _signed("transfer", action)
+    assert len(action_tx.frames) == 4, "gas-only action adds one frame"
+    tail = action_tx.frames[3]
+    assert tail.mode == 0 and tail.flags == 0 and tail.value == 0, "action must be DEFAULT with zero value"
+    assert tail.target == action["target"] and tail.data == action["data"], "action changed"
+    action_bound = common_mutations(action_tx) + action_mutations(action_tx)
+    assert_unbound(action_tx, action_auth, action_bound)
+
     withdraw, withdraw_auth = _signed("withdraw")
-    assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT claim frame"
-    assert withdraw.frames[3].mode == 0, "claim frame is DEFAULT"
+    assert len(withdraw.frames) == 4, "withdrawals add a DEFAULT tail"
+    assert withdraw.frames[3].mode == 0, "default withdraw tail is DEFAULT"
     withdraw_mutations = common_mutations(withdraw) + claim_mutations(withdraw)
     assert_unbound(withdraw, withdraw_auth, withdraw_mutations)
 
+    withdraw_action_tx, withdraw_action_auth = _signed("withdraw", action)
+    assert len(withdraw_action_tx.frames) == 4, "custom withdraw tail stays at four frames"
+    wtail = withdraw_action_tx.frames[3]
+    assert wtail.target == action["target"] and wtail.data == action["data"]
+    withdraw_action_bound = common_mutations(withdraw_action_tx) + action_mutations(withdraw_action_tx)
+    assert_unbound(withdraw_action_tx, withdraw_action_auth, withdraw_action_bound)
+
     print(json.dumps({"transfer_frames": 3,
                       "withdraw_frames": 4,
+                      "action_frames": 4,
+                      "withdraw_action_frames": 4,
                       "claim_mode": 0,
                       "bound_mutations_transfer": len(transfer_mutations),
                       "bound_mutations_withdraw": len(withdraw_mutations),
+                      "bound_mutations_action": len(action_bound),
+                      "bound_mutations_withdraw_action": len(withdraw_action_bound),
                       "raw_signature_elision_only": True,
                       "proof_bytes_bound": True,
                       "settlement_words_bound": 12}, sort_keys=True))

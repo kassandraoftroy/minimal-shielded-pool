@@ -153,10 +153,12 @@ object "ShieldedPoolDispatcher" {
             }
 
             function verifyFrameApprove() {
-                // Three frames for private transfers; four when publicAmount is
-                // nonzero. The fourth frame is never SENDER: an exact DEFAULT claim.
+                // Withdrawals require a fourth DEFAULT tail. A zero-withdrawal
+                // spend may append one generic DEFAULT tail, or keep three frames.
                 if iszero(eq(txParam(0x02), address())) { fail(errShape()) }
-                if iszero(eq(txParam(0x09), add(3, iszero(iszero(frameDataLoad(2, 260)))))) { fail(errShape()) }
+                let frames := txParam(0x09)
+                if iszero(or(eq(frames, 3), eq(frames, 4))) { fail(errShape()) }
+                if and(iszero(eq(frames, 4)), iszero(iszero(frameDataLoad(2, 260)))) { fail(errShape()) }
                 if iszero(eq(txParam(0x0A), 1)) { fail(errShape()) }
                 if iszero(eq(txParam(0x0B), 1)) { fail(errShape()) }
                 if txParam(0x07) { fail(errShape()) }
@@ -213,19 +215,22 @@ object "ShieldedPoolDispatcher" {
                 if frameParam(2, 0x08) { fail(errShape()) }
                 if iszero(eq(shr(224, frameDataLoad(2, 0)), 0x921fcac7)) { fail(errShape()) }
 
-                // Frame 3: DEFAULT claimWithdrawal. Present only for withdrawals.
-                // Anyone can call claimWithdrawal, so this frame does not need
-                // SENDER authority. Settlement remains the only SENDER frame.
-                if frameDataLoad(2, 260) {
-                    if iszero(eq(frameParam(3, 0x00), address())) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x01), 100000)) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x09), 183600)) { fail(errShape()) }
+                // Frame 3: generic DEFAULT. Present whenever frames == 4.
+                // Zero value and flags. Never SENDER. Nonzero target.
+                // Pool target is allowed only when publicAmount != 0 so the
+                // simple claimWithdrawal path remains valid. Caps, not pins.
+                // The outer signature authorizes this target and calldata, not
+                // spending from the target account.
+                if eq(frames, 4) {
+                    let target := frameParam(3, 0x00)
+                    if iszero(target) { fail(errShape()) }
+                    if and(iszero(frameDataLoad(2, 260)), eq(target, address())) { fail(errShape()) }
                     if frameParam(3, 0x02) { fail(errShape()) }
                     if frameParam(3, 0x03) { fail(errShape()) }
-                    if iszero(eq(frameParam(3, 0x04), 36)) { fail(errShape()) }
                     if frameParam(3, 0x08) { fail(errShape()) }
-                    if iszero(eq(shr(224, frameDataLoad(3, 0)), 0xa3066aab)) { fail(errShape()) }
-                    if iszero(eq(frameDataLoad(3, 4), frameDataLoad(2, 324))) { fail(errShape()) }
+                    if gt(frameParam(3, 0x01), 10000000) { fail(errShape()) }
+                    if gt(frameParam(3, 0x09), 10000000) { fail(errShape()) }
+                    if gt(frameParam(3, 0x04), 32768) { fail(errShape()) }
                 }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.

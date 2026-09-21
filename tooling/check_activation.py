@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "devnet"))
 
 from gas_profile import (  # noqa: E402
+    ACTION_FRAME_MAX_CALLDATA,
+    ACTION_FRAME_MAX_GAS,
+    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
     POOL_PROFILE,
@@ -75,11 +78,14 @@ PROFILES = {
     },
 }
 
-# Same frame grammar, new circuit/nullifier identities and storage layout.
-# This profile requires a fresh pool deployment.
+# Same frame grammar plus a generic DEFAULT tail, new circuit/nullifier
+# identities and storage layout. This profile requires a fresh pool deployment.
 PROFILES["position-notes-v1"] = {
     **PROFILES["recipient-pull-v1"], "pool_profile": POOL_PROFILE,
     "settle_frame_gas": SETTLE_FRAME_GAS,
+    "action_frame_max_gas": ACTION_FRAME_MAX_GAS,
+    "action_frame_max_state_gas": ACTION_FRAME_MAX_STATE_GAS,
+    "action_frame_max_calldata": ACTION_FRAME_MAX_CALLDATA,
 }
 
 
@@ -109,6 +115,10 @@ def main():
         raise SystemExit(f"unsupported transaction wire profile: {profile['wire_profile']!r}")
     if "claim_frame_gas" in expected:
         for field in ("pool_profile", "claim_frame_gas", "claim_frame_state_gas"):
+            if profile.get(field) != expected[field]:
+                raise SystemExit(f"{field} does not match the immutable dispatcher profile")
+    if "action_frame_max_gas" in expected:
+        for field in ("action_frame_max_gas", "action_frame_max_state_gas", "action_frame_max_calldata"):
             if profile.get(field) != expected[field]:
                 raise SystemExit(f"{field} does not match the immutable dispatcher profile")
     # A profile with a recent-root verifier frame budgets it in the prefix.

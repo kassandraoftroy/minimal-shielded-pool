@@ -64,6 +64,7 @@ jobs:
             devnet/dispatcher.py devnet/frametx.py devnet/gas_profile.py \
             devnet/pool_frametx.py \
             devnet/test_pool_envelope_binding.py \
+            devnet/test_gas_only_action.py \
             devnet/test_recent_root_window.py \
             devnet/test_occurrence_profile.py wallet/test_occurrence.py \
             wallet/test_wallet_occurrence.py \
@@ -73,6 +74,7 @@ jobs:
             tooling/patch_verifier.py
           python devnet/frametx.py
           python devnet/test_pool_envelope_binding.py
+          python devnet/test_gas_only_action.py
           python devnet/test_recent_root_window.py
           python devnet/test_occurrence_profile.py
           python wallet/test_occurrence.py

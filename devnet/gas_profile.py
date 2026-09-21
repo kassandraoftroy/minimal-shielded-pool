@@ -17,12 +17,22 @@ VERIFY_FRAME_GAS = 320_000
 # Keep margin over the measured path and conservative write/call overhead.
 SETTLE_FRAME_GAS = 2_000_000
 SETTLE_FRAME_STATE_GAS = 550_000
-# Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal. On native
-# ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716 execution
-# gas and 183,600 state gas. Boundary tests lower each limit by one.
+# Wallet/tooling default for the normal withdraw tail:
+# DEFAULT(pool, claimWithdrawal(recipient)). These used to be dispatcher
+# pins. They are still the declared limits for that path. Custom tails
+# (a different target or calldata) raise gas above these defaults, up
+# to the leftover caps. On native ethrex commit 247e2dd2, a DEFAULT
+# claim to a new EOA used 14,716 execution gas and 183,600 state gas.
 CLAIM_FRAME_GAS = 100_000
 CLAIM_FRAME_STATE_GAS = 183_600
 CLAIM_WITHDRAWAL_CALLDATA = 36
+# Leftover admission caps for any DEFAULT tail, including custom
+# account calls. Not the wallet default. Declaring both 10M limits in
+# one tx exceeds EIP-7825's 2^24 per-tx gas cap; wallets must declare
+# measured limits. Unused fee - actual_gas_cost stays in the pool.
+ACTION_FRAME_MAX_GAS = 10_000_000
+ACTION_FRAME_MAX_STATE_GAS = 10_000_000
+ACTION_FRAME_MAX_CALLDATA = 32_768
 
 STATE_BYTES_PER_STORAGE_SET = 64
 CPSB = 1_530

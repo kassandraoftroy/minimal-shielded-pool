@@ -24,6 +24,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "devnet"))
 
 from gas_profile import (  # noqa: E402
+    ACTION_FRAME_MAX_CALLDATA,
+    ACTION_FRAME_MAX_GAS,
+    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
     HEGOTA_TESTNET_MAX_VERIFY_GAS,
@@ -143,8 +146,9 @@ def main():
         f"if iszero(eq(frameParam(1, 0x09), {VERIFY_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x01), {SETTLE_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
-        f"if iszero(eq(frameParam(3, 0x01), {CLAIM_FRAME_GAS})) {{ fail(errShape()) }}",
-        f"if iszero(eq(frameParam(3, 0x09), {CLAIM_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x01), {ACTION_FRAME_MAX_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x09), {ACTION_FRAME_MAX_STATE_GAS}) {{ fail(errShape()) }}",
+        f"if gt(frameParam(3, 0x04), {ACTION_FRAME_MAX_CALLDATA}) {{ fail(errShape()) }}",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"
@@ -153,7 +157,13 @@ def main():
     # this profile from the activation manifest; the spend CLI rejects older
     # profiles instead of using their addresses with the new circuit.
     cfg = json.loads((ROOT / "devnet" / "deploy_config.json").read_text())
+    # This file records an older deployment, not a deployment of the new
+    # immutable dispatcher. The builder rejects it until a fresh deployment.
     assert cfg["profile"] in ("recipient-pull-v1", POOL_PROFILE)
+    if cfg["profile"] == POOL_PROFILE:
+        assert cfg["actionMaxGas"] == ACTION_FRAME_MAX_GAS
+        assert cfg["actionMaxStateGas"] == ACTION_FRAME_MAX_STATE_GAS
+        assert cfg["actionMaxCalldata"] == ACTION_FRAME_MAX_CALLDATA
     assert cfg["recentRootGas"] == RECENT_ROOT_FRAME_GAS
     assert cfg["verifyGas"] == VERIFY_FRAME_GAS
     assert cfg["verifyStateGas"] == VERIFY_FRAME_STATE_GAS
