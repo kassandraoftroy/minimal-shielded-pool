@@ -9,7 +9,7 @@
  "domain": "0x002afbc3c945ace23c40ba99812226dea437a3a433a0ec1b56c30947c80a682a",
  "_slot_transfer": "108537",
  "chainId": 8141,
- "profile": "generic-tail-v1",
+ "profile": "position-notes-v1",
  "verifyGas": 320000,
  "settleGas": 2000000,
  "testbedProvingKey": true,
