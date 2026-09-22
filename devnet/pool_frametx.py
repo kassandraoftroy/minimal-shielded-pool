@@ -27,6 +27,7 @@ proof bytes, gas, fees and the exact tuple. The tuple's slot is read from EIP-78
 
 Usage (append --dry-run to simulate without submitting):
   pool_frametx.py <rpc> config.json fixture.json shield   <funded-private-key>
+  pool_frametx.py <rpc> config.json fixture.json publish  <funded-private-key> [--epoch N]
   pool_frametx.py <rpc> config.json fixture.json transfer <unused>
   pool_frametx.py <rpc> config.json fixture.json withdraw <unused>
   pool_frametx.py ... transfer|withdraw <unused> --action-target 0x... \
@@ -355,6 +356,12 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         raise SystemExit("fee overrides require max_fee >= base_fee and max_priority <= max_fee")
     nonce_keys = protocol_nonces if protocol_nonces else [0]
     nonce_seq = 0 if protocol_nonces else nonce
+    if value:
+        bal = int(rpc(url, "eth_getBalance", [nonce_address, "latest"]), 16)
+        if bal < value:
+            raise SystemExit(
+                f"  sender {nonce_address} has {bal} wei; this frame moves {value} wei plus gas "
+                "(deployer balance after contract creates is a common cause)")
 
     def build(sender_gas=SETTLE_FRAME_GAS):
         if proof_verify:
@@ -439,7 +446,7 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         per = ", ".join(f"f{i}={hexint(f.get('gasUsed'))}" for i, f in enumerate(sim.get("frames") or []))
         total = hexint(sim.get("gasUsed"))
         print(f"  simulate: valid  shape={sim.get('prefixShape')}  payer={sim.get('payer')}  "
-              f"gas={total}  ({per})")
+              f"status={sim.get('executionStatus')}  gas={total}  ({per})")
         # Down-size the SENDER frame from the simulated gas ONLY for
         # non-spends. EIP-8037 state-dimension accounting varies 2-4x across
         # blocks, so measured + 25% is not a safe margin when the failure is
@@ -447,15 +454,21 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         # burns the notes (nullifiers consumed, outputs never inserted). For
         # spends the generous default stays; the payer's worst case is
         # prepaying more gas, refunded on success.
+        #
+        # Prefix `valid` is MATCHA only. A reverting SENDER still reports
+        # per-frame gasUsed; do not adopt that as a size.
         used = hexint((sim.get("frames") or [{}])[-1].get("gasUsed"))
-        if used is not None and not protocol_nonces:
-            sized = used + used // 4  # measured + 25% for state-gas variance at a later block
+        if (used is not None and not protocol_nonces
+                and sim.get("executionStatus") == "success"):
+            sized = max(used + used // 4, 80_000)
             tx2 = build(sender_gas=sized)
             raw2 = "0x" + tx2.raw().hex()
             s2 = simulate(url, raw2)
-            if s2 and s2.get("valid"):
+            if s2 and s2.get("valid") and s2.get("executionStatus") == "success":
                 tx, raw, eff = tx2, raw2, s2
-                print(f"  sized SENDER frame to {sized:,} gas (measured {used:,} + 25%)")
+                print(f"  sized SENDER frame to {sized:,} gas (measured {used:,} + 25%, floor 80k)")
+            elif s2 and s2.get("valid"):
+                print(f"  sized SENDER {sized:,} did not execute; keeping default {SETTLE_FRAME_GAS:,}")
     else:
         # A DEFAULT tail revert is not a prefix failure. Distinguish an
         # explicitly allowed claim failure from an action failure: the latter
@@ -501,9 +514,15 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
             print("  simulate: settlement succeeded; claim frame failed (allowed); "
                   "credit will remain for a later claim")
     elif eff and eff.get("executionStatus") and eff["executionStatus"] != "success":
+        hint = ""
+        if value:
+            hint = (f"; this frame moves {value} wei — if the sender is short after "
+                    "contract creates, top up and redeploy from scratch")
+        else:
+            hint = " (if root-not-recent, retry one block later)"
         raise SystemExit(f"  simulate: execution did not succeed "
-                         f"({eff.get('executionError') or eff['executionStatus']}); not sending "
-                         "(if root-not-recent, retry one block later)")
+                         f"({eff.get('executionError') or eff['executionStatus']}); not sending"
+                         f"{hint}")
 
     print(f"  frame tx: sender=0x{sender:040x} signer={signer_address} nonce_keys={nonce_keys} "
           f"raw_len={len(tx.raw())} max_cost={tx.max_cost()} sig_hash={tx.sig_hash().hex()[:18]}...")
@@ -556,6 +575,27 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
     raise SystemExit("  not mined within timeout")
 
 
+def wait_published_slot(url, rcpt, timeout=180):
+    """Two successor blocks, then the publication block's EIP-7843 slotNumber."""
+    pub_block = int(rcpt["blockNumber"], 16)
+    pub_hash = rcpt["blockHash"]
+    deadline = time.time() + timeout
+    while True:
+        head = int(rpc(url, "eth_blockNumber", []), 16)
+        print(f"  confirmations: head={head} publish_block={pub_block} (need +2)", flush=True)
+        if head >= pub_block + 2:
+            break
+        if time.time() >= deadline:
+            raise SystemExit(
+                f"  timed out waiting for 2 blocks after publish at {pub_block} (head {head})")
+        time.sleep(2)
+    block = rpc(url, "eth_getBlockByHash", [pub_hash, False])
+    slot = block.get("slotNumber")
+    if slot in (None, ""):
+        raise SystemExit("  publication block has no slotNumber")
+    return int(slot, 0) if isinstance(slot, str) else int(slot)
+
+
 def main():
     url, cfg_path, fix_path, op, priv = sys.argv[1:6]
     cfg = json.loads(open(cfg_path).read())
@@ -596,6 +636,7 @@ def main():
     note_index = None
     spend_key_override = None
     root_slot_override = None
+    epoch_override = 0
     flip_proof = "--flip-proof" in sys.argv
     allow_failed_claim = "--allow-failed-claim" in sys.argv
     if "--note" in sys.argv:
@@ -613,6 +654,11 @@ def main():
         if i + 1 >= len(sys.argv):
             raise SystemExit("--root-slot requires the consensus slot that published the root")
         root_slot_override = int(sys.argv[i + 1], 0)
+    if "--epoch" in sys.argv:
+        i = sys.argv.index("--epoch")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--epoch requires the epoch to publish")
+        epoch_override = int(sys.argv[i + 1], 0)
     if "--settle-gas" in sys.argv:
         i = sys.argv.index("--settle-gas")
         if i + 1 >= len(sys.argv):
@@ -694,6 +740,15 @@ def main():
         calldata = cast_calldata("shield(bytes32)", inner)
         print(f"shield {value} wei via frame tx -> pool {cfg['pool']}")
         build_and_send(url, pk, pool, value, calldata, dry_run=dry)
+    elif op == "publish":
+        # Same SelfVerify+SENDER shape as shield. A legacy cast send can sit in
+        # the Hegotá mempool forever when a non-frame tx fails to apply.
+        calldata = cast_calldata("publishEpochRoot(uint64)", str(epoch_override))
+        print(f"publishEpochRoot({epoch_override}) via frame tx -> pool {cfg['pool']}")
+        rcpt = build_and_send(url, pk, pool, 0, calldata, dry_run=dry)
+        if not dry and rcpt:
+            slot = wait_published_slot(url, rcpt)
+            print(f"ROOT_SLOT {slot}", flush=True)
     elif op == "transfer":
         e, protocol_nonces, verify, refs, auth_pk = spend_setup("transfer")
         if nonce_keys_override is not None:

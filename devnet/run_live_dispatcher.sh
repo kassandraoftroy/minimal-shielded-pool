@@ -58,6 +58,10 @@ HEAD=$(cast rpc --rpc-url "$RPC" eth_getBlockByNumber latest false)
   echo "RPC does not expose EIP-7843 slotNumber" >&2; exit 1;
 }
 
+DEPLOYER=$(cast wallet address --private-key "$DEPLOYER_PK")
+echo "==> deployer $DEPLOYER"
+cast balance "$DEPLOYER" --rpc-url "$RPC" --ether || true
+
 echo "==> Groth16 verifier (TESTBED zkey)"
 VERIFIER=$(forge create --root "$BN" --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" \
   --gas-limit 6000000 --broadcast src/Groth16Verifier.sol:Groth16Verifier | deployed)
@@ -126,29 +130,14 @@ python3 pool_frametx.py "$RPC" deploy_config.json "$SMOKE_OUTPUT" shield "$DEPLO
 # changes the tree invalidates the root the next one needs: the transfer and the withdraw
 # are bound to different roots and each needs its own publication.
 publish_root() {
-  local pub pub_tx pub_block head_block pub_hash block slot
-  pub=$(cast send "$POOL" 'publishEpochRoot(uint64)' 0 --rpc-url "$RPC" \
-    --private-key "$DEPLOYER_PK" "${PRICE[@]}" --gas-limit 500000 --json)
-  pub_tx=$(jq -r '.transactionHash' <<<"$pub")
-  # A shallow reorg can re-include the publication in a different consensus slot. Wait
-  # for two successors, then re-read the canonical receipt and block by hash. The spend
-  # wallet still checks the recent-root storage before signing.
-  while :; do
-    pub=$(cast receipt "$pub_tx" --rpc-url "$RPC" --json)
-    pub_block=$(cast to-dec "$(jq -r '.blockNumber' <<<"$pub")")
-    head_block=$(cast block-number --rpc-url "$RPC")
-    (( head_block >= pub_block + 2 )) && break
-    sleep 1
-  done
-  pub_hash=$(jq -r '.blockHash' <<<"$pub")
-  block=$(cast rpc --rpc-url "$RPC" eth_getBlockByHash "$pub_hash" false)
-  slot=$(jq -r '.slotNumber' <<<"$block")
-  [[ $slot != null && $slot != "" ]] || { echo "publication block has no slotNumber" >&2; return 1; }
-  cast to-dec "$slot"
+  python3 -u pool_frametx.py "$RPC" deploy_config.json deploy_config.json publish "$DEPLOYER_PK" --epoch 0 \
+    | tee /dev/stderr \
+    | sed -n 's/^ROOT_SLOT //p' | tail -1
 }
 
 echo "==> publish authenticated post-shield root"
 ROOT_SLOT_DEC=$(publish_root) || exit 1
+[[ -n $ROOT_SLOT_DEC ]] || { echo "publishEpochRoot did not emit ROOT_SLOT" >&2; exit 1; }
 
 MANIFEST_PATH=$MANIFEST python3 - "$RPC" "$POOL" "$VERIFIER" "$T3" "$T4" "$LOGIC" "$SOURCE0" "$DOMAIN" "$ROOT_SLOT_DEC" <<'PY'
 import json, os, sys
