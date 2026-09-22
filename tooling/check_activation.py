@@ -10,9 +10,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "devnet"))
 
 from gas_profile import (  # noqa: E402
-    ACTION_FRAME_MAX_CALLDATA,
-    ACTION_FRAME_MAX_GAS,
-    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
     POOL_PROFILE,
@@ -29,8 +26,10 @@ from gas_profile import (  # noqa: E402
 # than letting a manifest name its own.
 #
 # Split profiles declare execution and state independently. Historical budgets
-# stay frozen here; position-notes-v1 raises execution after native long-carry
-# testing exposed a failure at the old 1.4M limit.
+# stay frozen here; position-notes-v1 pins settlement execution at 2M because
+# native spends at 262,143 and 524,287 leaves OOG at 1.4M after VERIFY and
+# approval succeed. State remains 550,000. 2M is the reproduced fix, not a
+# proof of every settlement shape.
 PROFILES = {
     "ethrex-v23-hegota-testnet": {
         "verify_frame_gas": 320_000,
@@ -78,14 +77,11 @@ PROFILES = {
     },
 }
 
-# Same frame grammar plus a generic DEFAULT tail, new circuit/nullifier
-# identities and storage layout. This profile requires a fresh pool deployment.
+# Same frame grammar plus an optional generic DEFAULT tail, new
+# circuit/nullifier identities and storage layout. Fresh deployment required.
 PROFILES["position-notes-v1"] = {
     **PROFILES["recipient-pull-v1"], "pool_profile": POOL_PROFILE,
     "settle_frame_gas": SETTLE_FRAME_GAS,
-    "action_frame_max_gas": ACTION_FRAME_MAX_GAS,
-    "action_frame_max_state_gas": ACTION_FRAME_MAX_STATE_GAS,
-    "action_frame_max_calldata": ACTION_FRAME_MAX_CALLDATA,
 }
 
 
@@ -115,10 +111,6 @@ def main():
         raise SystemExit(f"unsupported transaction wire profile: {profile['wire_profile']!r}")
     if "claim_frame_gas" in expected:
         for field in ("pool_profile", "claim_frame_gas", "claim_frame_state_gas"):
-            if profile.get(field) != expected[field]:
-                raise SystemExit(f"{field} does not match the immutable dispatcher profile")
-    if "action_frame_max_gas" in expected:
-        for field in ("action_frame_max_gas", "action_frame_max_state_gas", "action_frame_max_calldata"):
             if profile.get(field) != expected[field]:
                 raise SystemExit(f"{field} does not match the immutable dispatcher profile")
     # A profile with a recent-root verifier frame budgets it in the prefix.

@@ -46,21 +46,26 @@ not force the tail: a withdrawal without one leaves `withdrawalCredit`.
    approves execution and payment.
 3. `SENDER(pool, settle(Spend))`, which performs bounded internal settlement.
 4. Optional generic `DEFAULT` tail, never `SENDER`. The frame has zero value
-   and flags, a nonzero target, and leftover caps of 10,000,000 execution
-   gas, 10,000,000 state gas and 32,768 calldata bytes. The normal withdraw
-   path is still `DEFAULT(pool, claimWithdrawal(recipient))` with the old
-   claim budgets (100,000 execution / 183,600 state). Custom tails raise
-   those declared limits under the leftover caps. Wallets must declare
-   **measured** limits: both 10M ceilings in one transaction exceed
-   EIP-7825's `2^24` per-tx gas cap. Unused `fee - actual_gas_cost` stays
-   in the pool. The proof-selected authorizer's FrameTx signature binds the
-   target and calldata. `publicAmount > 0` may target the pool so the simple
-   path remains `DEFAULT(pool, claimWithdrawal(recipient))`. A
-   zero-withdrawal tail cannot target the pool. If the tail is omitted or
-   fails, settlement stands: a withdrawal credit remains on `recipient` and
-   can be claimed later. Standalone `claimWithdrawal` remains for leftover
-   credits. `claimWithdrawal` always pays the recorded `who`, so the proof
-   recipient is the payout dest.
+   and flags and a nonzero target. The dispatcher does not pin tail gas or
+   calldata: the wallet allocates the action inside remaining EIP-7825
+   execution capacity (intrinsic plus all frame execution budgets and the
+   EIP-7976 calldata floor must fit `2^24`). State gas is a separate
+   dimension; native testing admitted 10M execution plus 10M state on a
+   spend that still left room for verification and settlement. The encoded
+   FrameTx as a whole must also fit the pinned ethrex 128 KiB mempool
+   limit. The normal withdraw path is still
+   `DEFAULT(pool, claimWithdrawal(recipient))` with the old claim budgets
+   (100,000 execution / 183,600 state). Custom tails declare their own
+   budgets inside leftover transaction capacity. Unused
+   `fee - actual_gas_cost` stays in the pool. The proof-selected
+   authorizer's FrameTx signature binds the target and calldata.
+   `publicAmount > 0` may target the pool so the simple path remains
+   `DEFAULT(pool, claimWithdrawal(recipient))`. A zero-withdrawal tail
+   cannot target the pool. If the tail is omitted or fails, settlement
+   stands: a withdrawal credit remains on `recipient` and can be claimed
+   later. Standalone `claimWithdrawal` remains for leftover credits.
+   `claimWithdrawal` always pays the recorded `who`, so the proof recipient
+   is the payout dest.
 
 A spend with `publicAmount = 0` and `recipient = 0` uses that same optional
 tail, paying its gas from the shielded fee. The called account must

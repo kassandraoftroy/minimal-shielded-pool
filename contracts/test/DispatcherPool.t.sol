@@ -192,8 +192,11 @@ contract DispatcherPoolTest {
         require(actualPool.currentEpoch() == 1 && actualPool.nextIndex() == 2, "actual rollover failed");
     }
 
-    /// Forge measures one gas dimension. The native suite separately checks
-    /// the execution and state limits enforced by the dispatcher.
+    /// Forge measures one gas dimension. 2,000,000 is the dispatcher SENDER
+    /// pin: native ethrex 247e2dd2 spends at 262,143 and 524,287 leaves OOG
+    /// settlement at 1.4M after VERIFY and approval succeed. This test is the
+    /// epoch-rollover shape; long-carry cases are the dedicated tests below.
+    /// The native suite separately checks the execution and state limits.
     function test_two_million_gas_covers_rollover_settlement() public {
         address t3 = address(0xA013);
         address t4 = address(0xA014);
@@ -252,6 +255,37 @@ contract DispatcherPoolTest {
         require(actualPool.currentEpoch() == 0, "long carry unexpectedly rolled");
         require(actualPool.nextIndex() == (1 << 19) + 1, "long carry outputs missing");
         require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "long carry credit missing");
+    }
+
+    function _longCarryWithForwardedBudget(uint32 nextIndex, address t3addr, address t4addr)
+        internal
+    {
+        vm.etch(t3addr, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
+        vm.etch(t4addr, vm.getDeployedCode("PoseidonT4.sol:PoseidonT4"));
+        ShieldedPoolLogic actualLogic = new ShieldedPoolLogic(t3addr, t4addr);
+        LogicProxy actualProxy = new LogicProxy(address(actualLogic));
+        IPool actualPool = IPool(address(actualProxy));
+        vm.deal(address(actualProxy), 100 ether);
+        for (uint256 slot; slot < 20; slot++) {
+            vm.store(address(actualProxy), bytes32(slot), bytes32(slot + 1));
+        }
+        vm.store(address(actualProxy), bytes32(uint256(21)), bytes32(uint256(nextIndex)));
+        ShieldedPoolLogic.Spend memory s =
+            _spend(bytes32(uint256(501)), bytes32(uint256(502)), 7, address(0xB0B));
+        s.domain = actualPool.domain(0);
+        uint256 forwarded = (SETTLE_FRAME_GAS * 63) / 64;
+        (bool ok,) = address(actualProxy).call{gas: forwarded}(abi.encodeCall(LogicProxy.settleAsSelf, (s)));
+        require(ok, "long-carry settlement exhausted EIP-150 forwarded 2M");
+        require(actualPool.nextIndex() == nextIndex + 2, "outputs missing");
+        require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "credit missing");
+    }
+
+    function test_forwarded_two_million_covers_long_carry_at_262143() public {
+        _longCarryWithForwardedBudget(262143, address(0xA033), address(0xA034));
+    }
+
+    function test_forwarded_two_million_covers_long_carry_at_524287() public {
+        _longCarryWithForwardedBudget(524287, address(0xA043), address(0xA044));
     }
 
     function test_settlement_does_not_call_recent_root_predeploy() public {

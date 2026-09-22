@@ -8,24 +8,48 @@ from eth_keys import keys
 
 import pool_frametx as builder
 from pool_frametx import (
-    ACTION_FRAME_MAX_CALLDATA,
-    ACTION_FRAME_MAX_GAS,
-    ACTION_FRAME_MAX_STATE_GAS,
+    EIP7825_TX_GAS_CAP,
+    ETHEX_MEMPOOL_MAX_BYTES,
+    RECENT_ROOT_ADDRESS,
+    RECENT_ROOT_FRAME_GAS,
+    SETTLE_FRAME_GAS,
+    SETTLE_FRAME_STATE_GAS,
     SPEND_TUPLE,
+    VERIFY_FRAME_GAS,
+    VERIFY_FRAME_STATE_GAS,
     _keccak,
     action_options,
+    check_tx_resource_limits,
     spend_tail_frame,
 )
+from frametx import Frame, FrameSig, FrameTx
 
 
 POOL = 0xBEEF
 ACCOUNT = 0xA11CE
+ACTION_GAS = 300_000
 
 
 def settlement(public_amount=0, recipient=0):
     words = [1, 1, 0, 2, 3, 4, 5, 6, public_amount, 7, recipient, 8]
     selector = _keccak(f"settle({SPEND_TUPLE})".encode())[:4]
     return selector + b"".join(word.to_bytes(32, "big") for word in words)
+
+
+def _spend_tx(tail):
+    return FrameTx(
+        chain_id=1, nonce_keys=[3, 4], nonce_seq=0, sender=POOL,
+        frames=[
+            Frame(1, 0, int(RECENT_ROOT_ADDRESS, 16), RECENT_ROOT_FRAME_GAS, 0, b"\x00" * 72),
+            Frame(1, 3, POOL, VERIFY_FRAME_GAS, 0, b"\x00" * 256,
+                  state_limit=VERIFY_FRAME_STATE_GAS),
+            Frame(2, 0, POOL, SETTLE_FRAME_GAS, 0, settlement(),
+                  state_limit=SETTLE_FRAME_STATE_GAS),
+            tail,
+        ],
+        signatures=[FrameSig(1, ACCOUNT, b"", b"\x00" * 65)],
+        max_priority_fee=1, max_fee=10,
+    )
 
 
 def rejects(fn, text=None):
@@ -91,27 +115,23 @@ def main():
     argv = [
         "--action-target", hex(ACCOUNT),
         "--action-call", "0x",
-        "--action-gas", str(ACTION_FRAME_MAX_GAS),
+        "--action-gas", str(ACTION_GAS),
         "--action-state-gas", "0",
     ]
     action = action_options(argv)
     assert action == {
         "target": ACCOUNT,
         "data": b"",
-        "gas_limit": ACTION_FRAME_MAX_GAS,
+        "gas_limit": ACTION_GAS,
         "state_limit": 0,
     }
     frame = spend_tail_frame(POOL, settlement(), action)
     assert (frame.mode, frame.flags, frame.target, frame.gas_limit, frame.value,
             frame.data, frame.state_limit) == (
-                0, 0, ACCOUNT, ACTION_FRAME_MAX_GAS, 0, b"", 0)
+                0, 0, ACCOUNT, ACTION_GAS, 0, b"", 0)
     checked += 2
 
     assert spend_tail_frame(POOL, settlement()) is None
-    checked += 1
-    maximum = dict(action, data=b"\xff" * ACTION_FRAME_MAX_CALLDATA,
-                   state_limit=ACTION_FRAME_MAX_STATE_GAS)
-    assert len(spend_tail_frame(POOL, settlement(), maximum).data) == ACTION_FRAME_MAX_CALLDATA
     checked += 1
 
     withdrawal = settlement(public_amount=1, recipient=ACCOUNT)
@@ -124,7 +144,7 @@ def main():
     checked += rejects(
         lambda: spend_tail_frame(POOL, withdrawal, action, omit=True), "omit cannot")
     custom = spend_tail_frame(POOL, withdrawal, action)
-    assert custom.target == ACCOUNT and custom.gas_limit == ACTION_FRAME_MAX_GAS
+    assert custom.target == ACCOUNT and custom.gas_limit == ACTION_GAS
     checked += 1
     pool_claim_action = dict(action, target=POOL, data=claim.data,
                              gas_limit=100_000, state_limit=183_600)
@@ -155,12 +175,9 @@ def main():
         (dict(action, target=0), "nonzero"),
         (dict(action, target=POOL), "nonzero non-pool"),
         (dict(action, target=1 << 160), "nonzero"),
-        (dict(action, data="0x00"), "calldata"),
-        (dict(action, data=b"\x00" * (ACTION_FRAME_MAX_CALLDATA + 1)), "calldata"),
+        (dict(action, data="0x00"), "calldata must be bytes"),
         (dict(action, gas_limit=0), "execution gas"),
-        (dict(action, gas_limit=ACTION_FRAME_MAX_GAS + 1), "execution gas"),
         (dict(action, state_limit=-1), "state gas"),
-        (dict(action, state_limit=ACTION_FRAME_MAX_STATE_GAS + 1), "state gas"),
     ]
     for candidate, message in invalid_actions:
         checked += rejects(lambda a=candidate: spend_tail_frame(POOL, settlement(), a), message)
@@ -171,6 +188,19 @@ def main():
     checked += rejects(
         lambda: spend_tail_frame(POOL, settlement(public_amount=0, recipient=ACCOUNT)), "both be zero")
     checked += rejects(lambda: spend_tail_frame(POOL, settlement()[:-1], action), "canonical")
+
+    modest = spend_tail_frame(POOL, settlement(), action)
+    check_tx_resource_limits(_spend_tx(modest))
+    checked += 1
+    huge_exec = dict(action, gas_limit=EIP7825_TX_GAS_CAP)
+    checked += rejects(
+        lambda: check_tx_resource_limits(_spend_tx(spend_tail_frame(POOL, settlement(), huge_exec))),
+        "EIP-7825")
+    huge_data = dict(action, data=b"\xff" * (ETHEX_MEMPOOL_MAX_BYTES + 1))
+    checked += rejects(
+        lambda: check_tx_resource_limits(_spend_tx(spend_tail_frame(POOL, settlement(), huge_data))),
+        "mempool")
+
 
     settled_then_action_failed = {
         "valid": False,

@@ -9,8 +9,6 @@ from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
 from pool_frametx import (
-    ACTION_FRAME_MAX_GAS,
-    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
     RECENT_ROOT_ADDRESS,
@@ -189,8 +187,8 @@ def main():
     action = {
         "target": 0xA11CE,
         "data": bytes.fromhex("12345678") + b"owner-authorized-action",
-        "gas_limit": ACTION_FRAME_MAX_GAS,
-        "state_limit": ACTION_FRAME_MAX_STATE_GAS,
+        "gas_limit": 300_000,
+        "state_limit": 100_000,
     }
     action_tx, action_auth = _signed("transfer", action)
     assert len(action_tx.frames) == 4, "gas-only action adds one frame"

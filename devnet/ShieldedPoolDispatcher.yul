@@ -218,7 +218,9 @@ object "ShieldedPoolDispatcher" {
                 // Frame 3: generic DEFAULT. Present whenever frames == 4.
                 // Zero value and flags. Never SENDER. Nonzero target.
                 // Pool target is allowed only when publicAmount != 0 so the
-                // simple claimWithdrawal path remains valid. Caps, not pins.
+                // simple claimWithdrawal path remains valid. No pool-specific
+                // gas or calldata ceiling: remaining EIP-7825 execution and
+                // the chain's transaction size limits are the wallet's job.
                 // The outer signature authorizes this target and calldata, not
                 // spending from the target account.
                 if eq(frames, 4) {
@@ -228,9 +230,6 @@ object "ShieldedPoolDispatcher" {
                     if frameParam(3, 0x02) { fail(errShape()) }
                     if frameParam(3, 0x03) { fail(errShape()) }
                     if frameParam(3, 0x08) { fail(errShape()) }
-                    if gt(frameParam(3, 0x01), 10000000) { fail(errShape()) }
-                    if gt(frameParam(3, 0x09), 10000000) { fail(errShape()) }
-                    if gt(frameParam(3, 0x04), 32768) { fail(errShape()) }
                 }
 
                 // The consumed EIP-8250 key set is exactly the two nullifiers.

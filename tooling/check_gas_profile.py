@@ -24,11 +24,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "devnet"))
 
 from gas_profile import (  # noqa: E402
-    ACTION_FRAME_MAX_CALLDATA,
-    ACTION_FRAME_MAX_GAS,
-    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
+    EIP7825_TX_GAS_CAP,
     HEGOTA_TESTNET_MAX_VERIFY_GAS,
     KEYED_NONCE_FIRST_USE_STATE_GAS,
     MAX_VERIFY_STATE_GAS,
@@ -119,6 +117,12 @@ def main():
     assert MAX_OBSERVED_RECENT_ROOT_FRAME_GAS < RECENT_ROOT_FRAME_GAS
     assert CONSERVATIVE_SETTLEMENT_EXECUTION_BOUND < SETTLE_FRAME_GAS
     assert CONSERVATIVE_SETTLEMENT_STATE_BOUND < SETTLE_FRAME_STATE_GAS
+    # The rollover-based 832,626+SSTORE bound misses long-carry at 262,143
+    # and 524,287 leaves: native ethrex 247e2dd2 OOGs settlement at 1.4M after
+    # VERIFY and approval succeed. The dispatcher pin is 2M execution for
+    # that reproduced path (plus EIP-150 forwarding). 2M is not a proof of
+    # every settlement shape.
+    assert SETTLE_FRAME_GAS == FROZEN_SETTLE_FRAME_GAS
     # The proof itself writes nothing. This exact budget exists only because its
     # payment APPROVE creates the two EIP-8250 keyed-nonce slots.
     assert VERIFY_FRAME_STATE_GAS == CONSERVATIVE_VERIFY_STATE_BOUND
@@ -134,11 +138,14 @@ def main():
                    + SETTLE_FRAME_GAS + SETTLE_FRAME_STATE_GAS)
     declared_single = VERIFY_FRAME_GAS + FROZEN_SETTLE_FRAME_GAS
     extra_over_frozen = declared_split - declared_single
-    assert extra_over_frozen == (VERIFY_FRAME_STATE_GAS + SETTLE_FRAME_STATE_GAS
-                                + SETTLE_FRAME_GAS - FROZEN_SETTLE_FRAME_GAS)
+    # Execution pin returned to 2M because 1.4M missed long-carry. The extra
+    # versus the frozen single-dimension 2M budget is the two state dimensions.
+    assert extra_over_frozen == VERIFY_FRAME_STATE_GAS + SETTLE_FRAME_STATE_GAS
+    assert EIP7825_TX_GAS_CAP == 16_777_216
 
-    # The dispatcher must enforce the same five limits the wallet emits. Yul
+    # The dispatcher must enforce the same settlement pins the wallet emits. Yul
     # cannot import the Python module, so check its unavoidable literals here.
+    # The optional DEFAULT tail has no pool-specific gas or calldata ceiling.
     dispatcher = (ROOT / "devnet" / "ShieldedPoolDispatcher.yul").read_text()
     dispatcher_pins = (
         f"if iszero(eq(frameParam(0, 0x01), {RECENT_ROOT_FRAME_GAS})) {{ fail(errShape()) }}",
@@ -146,12 +153,12 @@ def main():
         f"if iszero(eq(frameParam(1, 0x09), {VERIFY_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x01), {SETTLE_FRAME_GAS})) {{ fail(errShape()) }}",
         f"if iszero(eq(frameParam(2, 0x09), {SETTLE_FRAME_STATE_GAS})) {{ fail(errShape()) }}",
-        f"if gt(frameParam(3, 0x01), {ACTION_FRAME_MAX_GAS}) {{ fail(errShape()) }}",
-        f"if gt(frameParam(3, 0x09), {ACTION_FRAME_MAX_STATE_GAS}) {{ fail(errShape()) }}",
-        f"if gt(frameParam(3, 0x04), {ACTION_FRAME_MAX_CALLDATA}) {{ fail(errShape()) }}",
     )
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"
+    assert "if gt(frameParam(3, 0x01)," not in dispatcher
+    assert "if gt(frameParam(3, 0x09)," not in dispatcher
+    assert "if gt(frameParam(3, 0x04)," not in dispatcher
 
     # Keep the old deployment record historical. A new live deployment writes
     # this profile from the activation manifest; the spend CLI rejects older
@@ -160,10 +167,6 @@ def main():
     # This file records an older deployment, not a deployment of the new
     # immutable dispatcher. The builder rejects it until a fresh deployment.
     assert cfg["profile"] in ("recipient-pull-v1", POOL_PROFILE)
-    if cfg["profile"] == POOL_PROFILE:
-        assert cfg["actionMaxGas"] == ACTION_FRAME_MAX_GAS
-        assert cfg["actionMaxStateGas"] == ACTION_FRAME_MAX_STATE_GAS
-        assert cfg["actionMaxCalldata"] == ACTION_FRAME_MAX_CALLDATA
     assert cfg["recentRootGas"] == RECENT_ROOT_FRAME_GAS
     assert cfg["verifyGas"] == VERIFY_FRAME_GAS
     assert cfg["verifyStateGas"] == VERIFY_FRAME_STATE_GAS
@@ -198,7 +201,6 @@ def main():
         "declared_total": {
             "frozen_single_dimension": declared_single,
             "spec_two_dimensions": declared_split,
-            "pr_12279_state_gas_increase": CONSERVATIVE_VERIFY_STATE_BOUND,
             "extra_over_frozen": extra_over_frozen,
         },
     }, sort_keys=True))

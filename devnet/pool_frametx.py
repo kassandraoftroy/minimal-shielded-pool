@@ -14,7 +14,8 @@ default for a withdrawal is DEFAULT(pool, claimWithdrawal(recipient)) at
 CLAIM_FRAME_GAS / CLAIM_FRAME_STATE_GAS — the budgets the dispatcher used
 to pin. Omitting the tail leaves withdrawalCredit. Any other target and
 calldata is a custom tail: the wallet raises declared gas above those
-defaults, under the leftover caps. That frame has zero value and is fully
+defaults, inside remaining EIP-7825 execution capacity. That frame has
+zero value and is fully
 covered by the proof-selected authorizer's FrameTx signature.
 
 The leading frame is EIP-8272's canonical recent-root verifier: the predeploy checks the
@@ -50,11 +51,10 @@ from eth_keys import keys
 
 from frametx import Frame, FrameSig, FrameTx
 from gas_profile import (
-    ACTION_FRAME_MAX_CALLDATA,
-    ACTION_FRAME_MAX_GAS,
-    ACTION_FRAME_MAX_STATE_GAS,
     CLAIM_FRAME_GAS,
     CLAIM_FRAME_STATE_GAS,
+    EIP7825_TX_GAS_CAP,
+    ETHEX_MEMPOOL_MAX_BYTES,
     POOL_PROFILE,
     RECENT_ROOT_FRAME_GAS,
     SETTLE_FRAME_GAS,
@@ -250,14 +250,38 @@ def recent_root_tuple(url, cfg, e):
     return source_id + slot.to_bytes(8, "big") + root
 
 
+def check_tx_resource_limits(tx):
+    """Reject a built spend that does not fit chain-wide transaction limits.
+
+    Execution usage is intrinsic plus frame execution budgets versus the
+    EIP-7976 calldata floor. State is not added: 10M execution plus 10M
+    state can still fit EIP-7825. Encoded size is the whole FrameTx,
+    including proof, signatures, other frames and RLP overhead — not a
+    tail-only allowance.
+    """
+    used = tx.execution_cap_usage()
+    if used > EIP7825_TX_GAS_CAP:
+        raise ValueError(
+            f"declared execution {used} exceeds EIP-7825 cap {EIP7825_TX_GAS_CAP}"
+        )
+    encoded = len(tx.raw())
+    if encoded > ETHEX_MEMPOOL_MAX_BYTES:
+        raise ValueError(
+            f"encoded transaction {encoded} bytes exceeds ethrex "
+            f"{ETHEX_MEMPOOL_MAX_BYTES}-byte mempool limit"
+        )
+
+
 def spend_tail_frame(pool, settle_calldata, action=None, *, omit=False):
     """Derive the optional fourth DEFAULT frame from a canonical settlement.
 
     The fourth frame is optional on every spend. Withdrawals default to the
     permissionless pool claim at the old pinned claimWithdrawal gas. omit=True
     skips that default and leaves withdrawalCredit. Any spend may instead
-    append one explicitly authorized DEFAULT call and raise gas under the
-    leftover caps. A zero-public-amount tail cannot target the pool.
+    append one explicitly authorized DEFAULT call. Resource limits are
+    checked on the assembled transaction so they include the proof,
+    signatures, other frames and encoding overhead. A zero-public-amount
+    tail cannot target the pool.
     """
     selector = _keccak(f"settle({SPEND_TUPLE})".encode())[:4]
     if len(settle_calldata) != 4 + 12 * 32 or settle_calldata[:4] != selector:
@@ -290,12 +314,12 @@ def spend_tail_frame(pool, settle_calldata, action=None, *, omit=False):
         raise ValueError("action target must be a nonzero address")
     if amount == 0 and target == pool:
         raise ValueError("action target must be a nonzero non-pool address")
-    if not isinstance(data, bytes) or len(data) > ACTION_FRAME_MAX_CALLDATA:
-        raise ValueError(f"action calldata exceeds {ACTION_FRAME_MAX_CALLDATA} bytes")
-    if not isinstance(execution, int) or not 0 < execution <= ACTION_FRAME_MAX_GAS:
-        raise ValueError(f"action execution gas must be 1..{ACTION_FRAME_MAX_GAS}")
-    if not isinstance(state, int) or not 0 <= state <= ACTION_FRAME_MAX_STATE_GAS:
-        raise ValueError(f"action state gas must be 0..{ACTION_FRAME_MAX_STATE_GAS}")
+    if not isinstance(data, bytes):
+        raise ValueError("action calldata must be bytes")
+    if not isinstance(execution, int) or execution <= 0:
+        raise ValueError("action execution gas must be positive")
+    if not isinstance(state, int) or state < 0:
+        raise ValueError("action state gas must be nonnegative")
     return Frame(0, 0, target, execution, 0, data, state_limit=state)
 
 
@@ -366,9 +390,13 @@ def build_and_send(url, pk, pool, value, calldata, protocol_nonces=None, proof_v
         # convention 27/28 is statically invalid for frame signatures.
         sig = bytes([s.v]) + s.r.to_bytes(32, "big") + s.s.to_bytes(32, "big")
         tx.signatures = [FrameSig(FrameSig.SECP256K1, signer, b"", sig)]
+        check_tx_resource_limits(tx)
         return tx
 
-    tx = build() if settle_gas_override is None else build(sender_gas=settle_gas_override)
+    try:
+        tx = build() if settle_gas_override is None else build(sender_gas=settle_gas_override)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     raw = "0x" + tx.raw().hex()
     if save_raw:
         with open(save_raw, "w") as f:
@@ -538,10 +566,6 @@ def main():
             raise SystemExit(f"spends require profile={POOL_PROFILE}; use a fresh deployment of this profile")
         if cfg.get("claimGas") != CLAIM_FRAME_GAS or cfg.get("claimStateGas") != CLAIM_FRAME_STATE_GAS:
             raise SystemExit(f"spends require claimGas/claimStateGas matching {POOL_PROFILE}")
-        if (cfg.get("actionMaxGas") != ACTION_FRAME_MAX_GAS
-                or cfg.get("actionMaxStateGas") != ACTION_FRAME_MAX_STATE_GAS
-                or cfg.get("actionMaxCalldata") != ACTION_FRAME_MAX_CALLDATA):
-            raise SystemExit(f"spends require action caps matching {POOL_PROFILE}")
     omit_tail = "--no-tail" in sys.argv
     try:
         action = action_options(sys.argv[6:])

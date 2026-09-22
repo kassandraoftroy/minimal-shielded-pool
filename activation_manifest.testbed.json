@@ -26,9 +26,6 @@
     "settle_frame_state_gas": 550000,
     "claim_frame_gas": 100000,
     "claim_frame_state_gas": 183600,
-    "action_frame_max_gas": 10000000,
-    "action_frame_max_state_gas": 10000000,
-    "action_frame_max_calldata": 32768,
     "conservative_settle_bound": 1856368,
     "conservative_settle_state_bound": 489600
   },
@@ -39,11 +36,11 @@
     "circuits/spend.circom": "2206f25b7ede7ca6f54f6b125e3deea28717eb5e88e8e8fc6b9c9f97647078dd",
     "contracts/src/Groth16Verifier.sol": "faebe71ddd7d6d7b7729b19139d7f6868300f2004dbedf23bdcd67017f7a86f8",
     "contracts/src/ShieldedPoolLogic.sol": "fa9d7b1fc5fdca83c3a78cdd81cd3856dbfc9e18d20095054c22c6c248ad753b",
-    "devnet/ShieldedPoolDispatcher.yul": "fc19fa8a00765f30b6e4ff1bc9c84d8ad4b533bbfad5875e51e7fdb378587314",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "151ea2278c45f984422ec3cb0f12e2816f6daa720884b6525b7e4d13509a7f73",
-    "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "8f538a67982c203941a3e12cde664ed41896445bb38eb733a22e578e16b69323",
-    "devnet/pool_frametx.py": "a43d8fd6f9dc89dd1fe4cdd86ae48a331e398237c4eb28994a5264fd89611862",
-    "tooling/check_gas_profile.py": "a2e78041d7bbe54477dc9071f8d53d7eb2a423031d149fb74d98807099df4625"
+    "devnet/ShieldedPoolDispatcher.yul": "3e2f7c5fec019c3c786b57ea3fe4249e4249e06ae390e520e443f524cfb339fe",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "9deb225693e36199caf52c6b21268abd40442415c6986c514ed6f0efb0da0548",
+    "devnet/frametx.py": "c935e732b58c8a8bf04dfe7c6f2fed497e415b5f3d9e7eb66a01b3580b502a16",
+    "devnet/gas_profile.py": "9d1026ebdc8930aa06b0d2da05ceffc4e6a16c2b789c52da7b68a839fedea7be",
+    "devnet/pool_frametx.py": "83613cf339c48427ca5950dc7dde43650d9368b05d551e6e4baeb1af663b2540",
+    "tooling/check_gas_profile.py": "37f4b83f325c8e719dd3653a9e54144d75e719450895ddabba9db7e4b3634613"
   }
 }

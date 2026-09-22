@@ -221,6 +221,17 @@ class FrameTx:
         tokens = sum(self._floor_tokens(field) for field in self._data_fields())
         return self.mandatory_gas() + 16 * tokens
 
+    def execution_cap_usage(self) -> int:
+        """Declared execution against EIP-7825. State is a separate dimension.
+
+        Intrinsic plus frame execution budgets, versus the EIP-7976 calldata
+        floor (64 gas/byte). Does not add `limits.state`.
+        """
+        data_cost = sum(self._calldata_gas(field) for field in self._data_fields())
+        exec_side = (self.mandatory_gas() + data_cost
+                     + sum(f.gas_limit for f in self.frames))
+        return max(exec_side, self.calldata_floor_gas())
+
     def total_gas_limit(self) -> int:
         """EIP-8141 `max_gas = max(standard_gas_limit, calldata_floor_gas + sum(limits.state))`.
 

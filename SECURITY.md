@@ -44,11 +44,15 @@ remain unsafe, so the supported settlement gas bounds are still load-bearing.
 A failed tail frame does not undo settlement. If a withdrawal tail reverts or
 runs out of gas, the credit created by frame 2 remains on `recipient` and can
 be claimed later. The optional generic tail is outside settlement's failure
-scope. Its execution, state gas and calldata are capped, and the proof-bound
-fee must cover the complete transaction's maximum cost. Required Poseidon
+scope. The proof-bound fee must cover the complete transaction's maximum
+cost. The wallet allocates any tail inside remaining EIP-7825 execution
+capacity and the chain's transaction size limits; the dispatcher does not
+add a pool-specific tail gas or calldata ceiling. Required Poseidon
 operations use fixed-code
-static calls to two immutable, deployment-verified libraries. The 2M execution
-and 550k state budgets must be re-proved before every gas repricing fork.
+static calls to two immutable, deployment-verified libraries. Settlement
+execution is pinned at 2M because 1.4M OOGs long-carry after approval;
+that 2M execution and 550k state budgets must be re-proved before every
+gas repricing fork.
 
 The active tree rolls before any non-sink insertion when the current epoch
 lacks capacity. Final roots remain authenticated by pool state. EIP-8272 source
@@ -86,12 +90,16 @@ dispatcher, logic, and both Poseidon runtimes before the pool is used.
 
 A spend may append one `DEFAULT` frame whose target and calldata are chosen by
 the note authorizer and bound by the complete transaction signature. The frame
-has zero value and flags, cannot target the zero address, and is limited to
-10,000,000 execution gas, 10,000,000 state gas and 32,768 calldata bytes.
-Wallets default the tail to the old `claimWithdrawal` budgets (100,000
+has zero value and flags and cannot target the zero address. The dispatcher
+does not pin tail execution, state gas, or calldata. The wallet allocates the
+requested budget inside remaining transaction capacity: EIP-7825's `2^24`
+execution cap covers intrinsic gas, every frame's execution budget, and the
+EIP-7976 calldata floor. State gas is accounted separately; native testing
+admitted 10M execution plus 10M state. The pinned ethrex client applies a
+128 KiB mempool limit to the entire encoded transaction, not to the tail
+alone. Wallets default the tail to the old `claimWithdrawal` budgets (100,000
 execution / 183,600 state) and only raise gas for a custom target or
-calldata. Wallets must declare measured limits; both 10M ceilings in one
-transaction exceed EIP-7825's `2^24` per-tx gas cap. Settlement remains the
+calldata. Settlement remains the
 only `SENDER` frame. The fourth frame is optional on every spend, including
 withdrawals: omitting it leaves `withdrawalCredit`. A zero-withdrawal tail
 cannot target the pool. A withdrawal tail may target the pool so
@@ -135,10 +143,13 @@ extension neither repairs that blocker nor provides full-spend atomicity.
   insufficient.
 - A fork-scoped proof that the settlement limits cover all cold-state, rollover,
   credit, proxy, and static-call paths. The current profile declares 2,000,000
-  execution gas and 550,000 state gas. The previous 1,400,000 execution limit
-  failed a native long-carry tree insertion after consuming input keys.
-  The larger cap includes margin over measured cases; unsupported repricing forks require
-  a new immutable profile.
+  execution gas and 550,000 state gas. Native testing on ethrex `247e2dd2`
+  reproduced valid spends at 262,143 and 524,287 leaves where both VERIFY
+  frames succeed, approval consumes the input keys, and settlement then fails
+  at the previous 1,400,000 execution pin. Changing the dispatcher pin and
+  signed frame limit to 2,000,000 makes those cases succeed; 2M is not by
+  itself a proof of every settlement shape. Unsupported repricing forks
+  require a new immutable profile.
 - Independent circuit, Solidity, Yul, wallet, and deployment review.
 
 EIP-8369 remains an open Informational proposal. Its current `2^20` per-IL
@@ -156,7 +167,8 @@ secrets and one-time authorizer keys are not durably backed up.
 ## Evidence
 
 The Forge suite covers actual Poseidon runtimes, a 2M-capped worst-shape
-rollover with two outputs and a new credit, pre-insert rollover, full-tree
+rollover with two outputs and a new credit, long-carry at 262,143 and 524,287
+leaves under EIP-150 forwarding of that 2M budget, pre-insert rollover, full-tree
 exit, sink rules, separate publication failure/retry, pull-credit failure,
 direct-call rejection, valid proof verification, coordinate aliases, infinity,
 and authorizer mutation. The circuit generator rejects same-note inputs,
