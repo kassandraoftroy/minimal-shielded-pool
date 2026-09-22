@@ -257,9 +257,7 @@ contract DispatcherPoolTest {
         require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "long carry credit missing");
     }
 
-    function _longCarryWithForwardedBudget(uint32 nextIndex, address t3addr, address t4addr)
-        internal
-    {
+    function _longCarryWithForwardedBudget(uint32 nextIndex, address t3addr, address t4addr) internal {
         vm.etch(t3addr, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
         vm.etch(t4addr, vm.getDeployedCode("PoseidonT4.sol:PoseidonT4"));
         ShieldedPoolLogic actualLogic = new ShieldedPoolLogic(t3addr, t4addr);
@@ -270,8 +268,7 @@ contract DispatcherPoolTest {
             vm.store(address(actualProxy), bytes32(slot), bytes32(slot + 1));
         }
         vm.store(address(actualProxy), bytes32(uint256(21)), bytes32(uint256(nextIndex)));
-        ShieldedPoolLogic.Spend memory s =
-            _spend(bytes32(uint256(501)), bytes32(uint256(502)), 7, address(0xB0B));
+        ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(501)), bytes32(uint256(502)), 7, address(0xB0B));
         s.domain = actualPool.domain(0);
         uint256 forwarded = (SETTLE_FRAME_GAS * 63) / 64;
         (bool ok,) = address(actualProxy).call{gas: forwarded}(abi.encodeCall(LogicProxy.settleAsSelf, (s)));
