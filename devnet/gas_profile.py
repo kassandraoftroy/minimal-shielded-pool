@@ -11,9 +11,11 @@ verify budget.
 # dispatcher like every other budget: unpinned, it is the pool's money.
 RECENT_ROOT_FRAME_GAS = 30_000
 RECENT_ROOT_TUPLE_BYTES = 72
-POOL_PROFILE = "recipient-pull-v1"
+POOL_PROFILE = "position-notes-v1"
 VERIFY_FRAME_GAS = 320_000
-SETTLE_FRAME_GAS = 1_400_000
+# Native long-carry settlement exceeds the previous 1.4M execution limit.
+# Keep margin over the measured path and conservative write/call overhead.
+SETTLE_FRAME_GAS = 2_000_000
 SETTLE_FRAME_STATE_GAS = 550_000
 # Frame 3 of a public withdrawal: exact DEFAULT claimWithdrawal. On native
 # ethrex commit 247e2dd2, a DEFAULT claim to a new EOA used 14,716 execution

@@ -1,0 +1,127 @@
+{
+  "client_source_keccak256": {
+    "crates/blockchain/focil_profile2.rs": "0x5119509641976fb25d99258c66fb48bf5ea4c89581e9f426831c50d0071c08ae",
+    "crates/blockchain/mempool.rs": "0x8ebf1a156b72a083322c3550eae387e988eb1f8ecbea8300f2825b95dfa060fe",
+    "crates/vm/levm/src/validation_observer.rs": "0x850a32ebee6ccc94128e8f9d1bf2345877351cac0f88303667b6e54076d2e391",
+    "crates/vm/levm/src/vm.rs": "0xa9fccf68b2e94dc32028f51bff69205c7268b5049dc2f8ab059e49dcd34e528e"
+  },
+  "ethrex_revision": "247e2dd2c4d4c526dcc64ac1c025bd2319e7a10e",
+  "first": "policy-first.hex",
+  "fixture_keccak256": {
+    "deploy-logic.hex": "0xb2b0f405824a271c2ccc32d9f55e3405afe97a85d31c506ead3b682204069cee",
+    "deploy-pool.hex": "0xe34de6790b78597bc8eddd2aeafded8f2c20be005322e608db51a289e28f7e70",
+    "deploy-poseidon3.hex": "0x22cd9c557847e26caca99b3bf9af2b1494819dd4e9ea80437157069b0297dcd5",
+    "deploy-poseidon4.hex": "0xdcc1e6b8c328e532fe2dabc48179a6eaa11277a9592fe31c2240c89a46cfc07b",
+    "deploy-verifier.hex": "0xe801488b606225c406cfa9117a510ab258b580e3a5de7824edc1c290f0b913ed",
+    "deposit-a.hex": "0xfda8d78c33aef5183567e6616129306c56a8b4291a2bd23876dcc44a9b84d1f6",
+    "deposit-b.hex": "0x5b14aeaa2fad64674df3ad29ce7c2a372790b17258715953893bd534e1c1842d",
+    "policy-first.hex": "0x92a9e635cb4e3578f8344f66abc488a3a86bfba71167ec073631e832554e7b51",
+    "policy-second.hex": "0x88df669bbc21d4cda14f798669f9702d59db70056c32653aa76347acc0f99593",
+    "publish-initial.hex": "0xcbd9ce5d16ee34a128902a7a9b95ccd44bb69b296e1f10ea1a877352fad34c2c"
+  },
+  "results": [
+    {
+      "any_revert": false,
+      "file": "policy-first.hex",
+      "injected_mapping_read": false,
+      "keyed_concurrency": "Allowed",
+      "loaded_code_bodies": null,
+      "loaded_code_bytes": null,
+      "payer": "0x87ee85741a55f01b01caf9c2eafd5b14af8028cf",
+      "prefix_gas": 260326,
+      "profile2_surface": false,
+      "read_legacy_nonce": false,
+      "sender_slots": [],
+      "violation": null
+    },
+    {
+      "any_revert": false,
+      "file": "policy-first.hex",
+      "injected_mapping_read": false,
+      "keyed_concurrency": "Allowed",
+      "loaded_code_bodies": 3,
+      "loaded_code_bytes": 4780,
+      "payer": "0x87ee85741a55f01b01caf9c2eafd5b14af8028cf",
+      "prefix_gas": 260326,
+      "profile2_surface": true,
+      "read_legacy_nonce": false,
+      "sender_slots": [],
+      "violation": null
+    },
+    {
+      "any_revert": false,
+      "file": "policy-second.hex",
+      "injected_mapping_read": false,
+      "keyed_concurrency": "Allowed",
+      "loaded_code_bodies": null,
+      "loaded_code_bytes": null,
+      "payer": "0x87ee85741a55f01b01caf9c2eafd5b14af8028cf",
+      "prefix_gas": 260353,
+      "profile2_surface": false,
+      "read_legacy_nonce": false,
+      "sender_slots": [],
+      "violation": null
+    },
+    {
+      "any_revert": false,
+      "file": "policy-second.hex",
+      "injected_mapping_read": false,
+      "keyed_concurrency": "Allowed",
+      "loaded_code_bodies": 3,
+      "loaded_code_bytes": 4780,
+      "payer": "0x87ee85741a55f01b01caf9c2eafd5b14af8028cf",
+      "prefix_gas": 260353,
+      "profile2_surface": true,
+      "read_legacy_nonce": false,
+      "sender_slots": [],
+      "violation": null
+    },
+    {
+      "profile2_static_candidate": true,
+      "verify_budget_cost": 352800
+    },
+    {
+      "profile2_static_candidate": true,
+      "verify_budget_cost": 352800
+    },
+    {
+      "real_disjoint_transactions_pending": 2
+    },
+    {
+      "storage_dependent_sibling_rejected": "FrameTxSenderAlreadyPending"
+    },
+    {
+      "synthetic_partial_key_overlap_rejected": "FrameTxSenderAlreadyPending"
+    },
+    {
+      "any_revert": true,
+      "injected_mapping_read": true,
+      "keyed_concurrency": "Denied",
+      "loaded_code_bodies": null,
+      "loaded_code_bytes": null,
+      "payer": null,
+      "prefix_gas": 7788,
+      "profile2_surface": false,
+      "read_legacy_nonce": false,
+      "sender_slots": [
+        "0x3c854b2a4702984ca6d9cdae02251dffdf469e3c146b6e9b8859d11c1293d9f7"
+      ],
+      "violation": null
+    },
+    {
+      "any_revert": true,
+      "injected_mapping_read": true,
+      "keyed_concurrency": "Allowed",
+      "loaded_code_bodies": 2,
+      "loaded_code_bytes": 383,
+      "payer": null,
+      "prefix_gas": 7788,
+      "profile2_surface": true,
+      "read_legacy_nonce": false,
+      "sender_slots": [],
+      "violation": "StorageReadOutsideSurface { address: 0x87ee85741a55f01b01caf9c2eafd5b14af8028cf, slot: 0x3c854b2a4702984ca6d9cdae02251dffdf469e3c146b6e9b8859d11c1293d9f7 }"
+    }
+  ],
+  "scope": "Real LEVM prefix execution, Profile2 static candidacy/storage/trace/code-budget checks, direct client mempool insertion. Not full blockchain admission, inclusion-list omission processing, block import or networking. Default 100k public-mempool validation gas gate is not relaxed by this candidate; these pool fixtures already exceed it.",
+  "second": "policy-second.hex"
+}

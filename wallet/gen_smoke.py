@@ -19,7 +19,7 @@ fixture pairs with the committed Groth16Verifier.sol from the same setup.
 Run from the wallet/ directory:
   python3 gen_smoke.py [--random] [--chain-id=N] [--pool-address=0x...]
                        [--shield-wei=N] [--payment-wei=N] [--fee-wei=N]
-                       [--output=PATH] [--recipient=0x...]
+                       [--output=PATH] [--recipient=0x...] [--epoch=N]
 
 The value overrides preserve the same flow at a smaller scale. They are useful
 for disposable devnet deployments and envelope boundary tests; defaults remain
@@ -118,6 +118,7 @@ def main():
         w.set_seed(20260702)
     chain_id = TEST_CHAIN_ID
     pool_address = TEST_POOL
+    epoch = 0
     shield_wei = ETH
     payment_wei = ETH * 60 // 100
     fee_wei = ETH * 5 // 100
@@ -128,6 +129,8 @@ def main():
             chain_id = int(arg.split("=", 1)[1], 0)
         elif arg.startswith("--pool-address="):
             pool_address = arg.split("=", 1)[1]
+        elif arg.startswith("--epoch="):
+            epoch = int(arg.split("=", 1)[1], 0)
         elif arg.startswith("--shield-wei="):
             shield_wei = int(arg.split("=", 1)[1], 0)
         elif arg.startswith("--payment-wei="):
@@ -143,7 +146,7 @@ def main():
             recipient = f"0x{w.address_scalar(recipient):040x}"
         elif arg.startswith("--output="):
             output_path = Path(arg.split("=", 1)[1]).expanduser().resolve()
-    domain = w.domain_scalar(chain_id, pool_address)
+    domain = w.domain_scalar(chain_id, pool_address, epoch)
 
     # notes: Alice's deposit, Bob's payment target, Alice's change target
     sk_a, rho_a = w.new_note()
@@ -248,20 +251,21 @@ def main():
     fixture = {
         "chain_id": chain_id,
         "pool_address": pool_address,
+        "epoch": epoch,
         "domain": hex32(domain),
         "inner_a": hex32(inner_a),
         "cm_a": hex32(cm_a),
         "shield_value": str(v_shield),
         "recipient": recipient,
-        "transfer": spend_entry(t1, domain, ins_t, outs_t, 0,
+        "transfer": spend_entry(t1, domain, ins_t, outs_t, epoch,
                                 0, v_fee, 0, auth_t, auth_t_key, pub_t, proof_t,
                                 # Bob's opening is retained for the withdrawal vector.
                                 out_inner1=hex32(outs_t[0][0]),
                                 out_value1=str(outs_t[0][1])),
-        "withdraw_seed": spend_entry(t2, domain, ins_seed, w.sink_outputs(), 0,
+        "withdraw_seed": spend_entry(t2, domain, ins_seed, w.sink_outputs(), epoch,
                                      v_seed_pub, v_fee, w.address_scalar(recipient),
                                      auth_s, auth_s_key, pub_s, proof_s),
-        "withdraw": spend_entry(t2, domain, ins_w, outs_w, 0,
+        "withdraw": spend_entry(t2, domain, ins_w, outs_w, epoch,
                                 v_pub, v_fee, w.address_scalar(recipient),
                                 auth_w, auth_w_key, pub_w, proof_w),
     }

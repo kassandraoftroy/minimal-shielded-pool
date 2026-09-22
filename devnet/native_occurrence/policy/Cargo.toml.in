@@ -1,0 +1,15 @@
+[package]
+name = "msp-occurrence-policy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethrex-blockchain = { path = "@ETHREX@/crates/blockchain", default-features = false }
+ethrex-levm = { path = "@ETHREX@/crates/vm/levm", default-features = false }
+ethrex-common = { path = "@ETHREX@/crates/common", default-features = false }
+ethrex-crypto = { path = "@ETHREX@/crates/common/crypto", default-features = false, features = ["std"] }
+bytes = "1.6.0"
+rustc-hash = "2.1.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"

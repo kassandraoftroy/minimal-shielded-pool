@@ -31,8 +31,11 @@ pragma circom 2.0.8;
 //     inner    = Poseidon2(owner_pk, rho)          # what a recipient reveals
 //     cm       = Poseidon(TAG_LEAF, inner, value)  # shield hashes value in
 //                                                  # ON-CHAIN from msg.value
-//     domain   = keccak256(DOMAIN_TAG || chain_id || pool_address) mod Fr
-//     nf       = Poseidon(TAG_NULL, Poseidon2(domain, spend_key), cm)
+//     domain   = keccak256(DOMAIN_TAG || chain_id || pool_address || epoch) mod Fr
+//     index    = sum(bits[i] * 2^i)
+//     nf       = Poseidon(4, Poseidon2(domain, spend_key), Poseidon2(cm, index))
+// This is a fresh-deployment prototype; old spent-note identities MUST NOT
+// be migrated by replacing the verifier under an existing pool.
 //
 // A zero-valued output is one of two position-specific canonical sinks. The
 // settlement contract recognises those commitments and does not insert them.
@@ -59,7 +62,7 @@ pragma circom 2.0.8;
 //   8. Same-note-twice is refused in-circuit by nf1 != nf2. The EIP-8250
 //      duplicate-key rule remains defense in depth.
 //   9. Domain separation: the contract binds the public domain to this chain
-//      and immutable pool address before verifying the proof.
+//      immutable pool address and authenticated input epoch before verifying.
 //
 // The four contract-side VERIFY bindings still apply, with the key-set
 // binding generalised: the consumed nonce-key set must be exactly
@@ -81,8 +84,10 @@ template InputNote(DEPTH) {
     signal input bits[DEPTH];
     signal output nf;
 
+    var index = 0;
     for (var i = 0; i < DEPTH; i++) {
         bits[i] * (bits[i] - 1) === 0;
+        index += bits[i] * (2 ** i);
     }
 
     component pk = Poseidon(3);
@@ -113,16 +118,19 @@ template InputNote(DEPTH) {
     // membership, gated: a nonzero-value note must open at the anchored root
     (cur[DEPTH] - root) * value === 0;
 
-    // Domain separation keeps one note's keyed nonce distinct across chains
-    // and pool deployments without requiring a new Poseidon arity:
-    // nf = Poseidon3(TAG_NULL, Poseidon2(domain, spend_key), cm).
+    // The authenticated epoch and Merkle position identify a funded occurrence.
+    // Keep cm: dummy inputs have arbitrary path bits but must not reproduce a
+    // funded note's nullifier using the same key and index with value zero.
     component domainKey = Poseidon(2);
     domainKey.inputs[0] <== domain;
     domainKey.inputs[1] <== spend_key;
+    component occurrence = Poseidon(2);
+    occurrence.inputs[0] <== leaf.out;
+    occurrence.inputs[1] <== index;
     component null = Poseidon(3);
-    null.inputs[0] <== 3;
+    null.inputs[0] <== 4;
     null.inputs[1] <== domainKey.out;
-    null.inputs[2] <== leaf.out;
+    null.inputs[2] <== occurrence.out;
     nf <== null.out;
 }
 

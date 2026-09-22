@@ -3,13 +3,13 @@
 ## Status
 
 Unaudited research software. Do not use the committed proving key or deployed
-testnet pool for real value. The repository setup is single-party, so its toxic
-waste could forge arbitrary spends.
+testnet pool for real value. The repository setup uses public test-only phase-2
+entropy, so its toxic waste can be recovered to forge arbitrary spends.
 
 The previously identified implementation blockers are fixed in the active
 code: complete-envelope authorization, positional sinks, pre-insert epoch
 rollover, separate root publication, canonical Groth16 encodings, direct-call
-rejection, exact two-frame self-payment, and EIP-7843 slot handling. Production
+rejection, exact three/four-frame self-payment, and EIP-7843 slot handling. Production
 activation remains blocked on a real ceremony, independent audit, cross-client
 evidence, and fork-specific gas proof.
 
@@ -36,21 +36,33 @@ without the one-time private key.
 
 Payment approval consumes the EIP-8250 keys before SENDER settlement. Safety
 therefore requires settlement to be total for every proof-valid admitted
-transaction under the pinned fork gas profile. Native testing has reproduced an
-existing production blocker: approval can succeed and settlement can still fail
-after the nullifier keys are consumed, so the promised outputs are not created.
+transaction under the pinned fork gas profile. Previously, a duplicate output
+could revert settlement after consuming the input keys. Position-bound
+nullifiers let settlement append that separately funded occurrence instead.
+This removes the duplicate failure path; arbitrary post-approval failures
+remain unsafe, so the supported settlement gas bounds are still load-bearing.
 A failed claim frame does not undo settlement. If the recipient reverts or the
 claim runs out of gas, the credit created by frame 2 remains and can be claimed
 later. The implementation does not allow caller-chosen post-approval calls. Its
 required Poseidon operations use fixed-code
-static calls to two immutable, deployment-verified libraries. The 2M SENDER
-constant must be re-proved before every gas repricing fork.
+static calls to two immutable, deployment-verified libraries. The 2M execution
+and 550k state budgets must be re-proved before every gas repricing fork.
 
 The active tree rolls before any non-sink insertion when the current epoch
 lacks capacity. Final roots remain authenticated by pool state. EIP-8272 source
 IDs are distinct per epoch, preventing same-slot historical-publication
-contention. Nullifiers use a stable chain-and-pool domain and never include the
-epoch, so rollover cannot make an old note spendable twice.
+contention. Nullifiers bind chain, pool, the authenticated input epoch, the
+commitment and its constrained Merkle index. They never use the changing root,
+publication slot or current output epoch, so rollover and republication cannot
+make an old occurrence spendable twice. Zero-value dummy inputs retain the
+commitment binding, preventing them from copying a funded note's nullifier.
+
+This is a fresh-deployment change. Reusing an old pool's spent-note state with
+the new nullifier formula could permit double spending. The versioned profile
+rejects historical deployment configs. Wallets must retain duplicate
+commitments as distinct occurrences and rebuild canonical positions and spend
+IDs after a reorg. Native tests simulate removed and replacement state; they
+do not implement consensus fork choice or a production wallet database.
 
 Two distinct position-specific zero commitments represent no-output slots.
 They are never inserted. Positive outputs cannot use either reserved inner,
@@ -81,9 +93,10 @@ dispatcher, logic, and both Poseidon runtimes before the pool is used.
   the signature. The published EIP-8141 public-mempool value is 100,000 and is
   insufficient.
 - A fork-scoped proof that the settlement limits cover all cold-state, rollover,
-  credit, proxy, and static-call paths. The current profile declares 1,400,000
-  execution gas and 550,000 state gas, replacing the single 2,000,000-gas budget
-  that predates EIP-8037's second dimension. Unsupported repricing forks require
+  credit, proxy, and static-call paths. The current profile declares 2,000,000
+  execution gas and 550,000 state gas. The previous 1,400,000 execution limit
+  failed a native long-carry tree insertion after consuming input keys.
+  The larger cap includes margin over measured cases; unsupported repricing forks require
   a new immutable profile.
 - Independent circuit, Solidity, Yul, wallet, and deployment review.
 
@@ -110,7 +123,15 @@ duplicate outputs, dummy-only spends, wrong sinks, sink-valued positive outputs,
 zero authorizers, and recipient mismatches. The envelope vector mutates 48
 signed transfer components and 56 signed withdrawal components.
 
-The gas derivation is recorded in
+The position-bound note suite passes 20 native scenarios using 23 real Groth16
+proofs, plus two client-policy tests. It covers duplicate deposits and outputs,
+replay, epoch binding, database rollback and proof rebuilding, and settlement
+gas boundaries. The highest measured settlement execution cost is 1,423,709;
+the old 1.4M limit fails after consuming input keys. The new 2M limit includes
+additional margin, not a formal proof of a universal bound. See
+[`devnet/native_occurrence/README.md`](devnet/native_occurrence/README.md).
+
+The earlier profile's gas derivation is recorded in
 [`devnet/vectors/2026-08-14-tight-gas-profile.md`](devnet/vectors/2026-08-14-tight-gas-profile.md).
 
 The 2026-08-14 ethrex run completed shield, transfer, root refresh, withdrawal,

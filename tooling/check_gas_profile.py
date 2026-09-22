@@ -12,9 +12,9 @@ that is not merely a re-encoding, it changes what has to be bounded:
     the current spec `max_gas` includes the declared state budgets and the pool is the payer. An unpinned
     `limits.state` is an unbounded charge against the pool.
 
-The bounds keep the frozen file's method: start from a measured worst-case execution, then add
-the full current-fork charge for every reachable SSTORE, and account state growth separately
-rather than folding it in.
+The execution check adds a conservative write/call margin to the maximum
+measured native case. Tree operation counts are checked over every index;
+the finite VM measurements are not a formal gas proof for arbitrary forks.
 """
 import json
 import sys
@@ -60,32 +60,55 @@ CONSERVATIVE_VERIFY_STATE_BOUND = (
     SPEND_NONCE_KEY_COUNT * KEYED_NONCE_FIRST_USE_STATE_GAS
 )
 
-# Rollover + two outputs + a first withdrawal credit performs at most 33 SSTORE operations.
-# Five end in previously absent slots: finalized root, epoch counter, two leaf markers, and
-# the withdrawal credit. Only those five grow the state.
-MAX_SSTORE_OPERATIONS = 33
+# Rollover clears 21 subtree slots, then may create two output subtrees.
+# Five new slots conservatively cover zero-valued prior hash outputs too;
+# removing the commitment registry does not justify reducing this to three.
+MAX_SSTORE_OPERATIONS = 31
 MAX_NEW_STORAGE_SLOTS = 5
 
-LOCAL_WORST_SETTLEMENT_GAS = 832_626
+# Pinned ethrex 247e2dd2, long carry at index 2^19-1, two outputs and credit.
+# See devnet/native_occurrence/native-report.json. The previous rollover-only
+# Foundry measurement missed this 39-hash path and did not bound native gas.
+NATIVE_MAX_OBSERVED_SETTLEMENT_GAS = 1_423_709
 # EIP-8038: cold access (2,100) + STORAGE_WRITE (10,000).
 EIP_8038_COLD_WRITE_GAS = 12_100
 # EIP-8037 uses the same state gas for any new storage slot.
 EIP_8037_NEW_SLOT_STATE_GAS = KEYED_NONCE_FIRST_USE_STATE_GAS
 
 # The execution dimension no longer carries state growth.
-CONSERVATIVE_SETTLEMENT_EXECUTION_BOUND = (
-    LOCAL_WORST_SETTLEMENT_GAS + MAX_SSTORE_OPERATIONS * EIP_8038_COLD_WRITE_GAS
-)
+_WITH_WRITE_MARGIN = NATIVE_MAX_OBSERVED_SETTLEMENT_GAS + MAX_SSTORE_OPERATIONS * EIP_8038_COLD_WRITE_GAS
+# Two nested call levels: dispatcher -> logic -> Poseidon. Charge the full
+# write margin again even though the measured path already contains writes.
+CONSERVATIVE_SETTLEMENT_EXECUTION_BOUND = (_WITH_WRITE_MARGIN * 64 * 64 + 63 * 63 - 1) // (63 * 63)
 CONSERVATIVE_SETTLEMENT_STATE_BOUND = MAX_NEW_STORAGE_SLOTS * EIP_8037_NEW_SLOT_STATE_GAS
 
 # What the frozen profile had to declare for the same work, as one number.
 FROZEN_SETTLE_FRAME_GAS = 2_000_000
 
 
+def check_tree_shapes():
+    """Enumerate hash/write counts, not EVM gas, for every supported index."""
+    capacity = 1 << 20
+    maxima = {False: [0, 0], True: [0, 0]}
+    for start in range(capacity + 1):
+        for count in (1, 2):
+            rolled = count > capacity - start
+            index = 0 if rolled else start
+            hashes = sum(((i + 1) & -(i + 1)).bit_length() - 1
+                         for i in range(index, index + count))
+            if index + count != capacity:
+                hashes += 20
+            writes = (25 if rolled else 0) + 2 * count + 2
+            maxima[rolled][0] = max(maxima[rolled][0], hashes)
+            maxima[rolled][1] = max(maxima[rolled][1], writes)
+    assert maxima == {False: [39, 6], True: [21, 31]}, maxima
+    return {"no_rollover": maxima[False], "rollover": maxima[True]}
+
+
 def main():
-    # This is a conservative comparison only. The measurement came from a node
-    # that charged 40,000 keyed nonce gas as execution. No PR 12279 node exists
-    # yet, so there is no post-change execution measurement.
+    tree_shapes = check_tree_shapes()
+    # Historical measurements bound the unchanged verifier shape. The exact
+    # position-notes deployment is checked by devnet/native_occurrence.
     assert PRE_PR_12279_MAX_OBSERVED_VERIFY_EXECUTION_GAS < VERIFY_FRAME_GAS
     # The measured figures must fit the budgets the dispatcher pins, or a spend that
     # simulates fine halts mid-frame on a chain with slightly different access costs.
@@ -107,12 +130,9 @@ def main():
     declared_split = (VERIFY_FRAME_GAS + VERIFY_FRAME_STATE_GAS
                    + SETTLE_FRAME_GAS + SETTLE_FRAME_STATE_GAS)
     declared_single = VERIFY_FRAME_GAS + FROZEN_SETTLE_FRAME_GAS
-    pre_pr_12279_split = declared_split - CONSERVATIVE_VERIFY_STATE_BOUND
-    pre_pr_12279_saving = declared_single - pre_pr_12279_split
     extra_over_frozen = declared_split - declared_single
-    assert pre_pr_12279_saving == 50_000
-    assert extra_over_frozen == 145_840
-    assert extra_over_frozen == CONSERVATIVE_VERIFY_STATE_BOUND - pre_pr_12279_saving
+    assert extra_over_frozen == (VERIFY_FRAME_STATE_GAS + SETTLE_FRAME_STATE_GAS
+                                + SETTLE_FRAME_GAS - FROZEN_SETTLE_FRAME_GAS)
 
     # The dispatcher must enforce the same five limits the wallet emits. Yul
     # cannot import the Python module, so check its unavoidable literals here.
@@ -129,14 +149,15 @@ def main():
     assert all(pin in dispatcher for pin in dispatcher_pins), \
         "dispatcher gas limits differ from devnet/gas_profile.py"
 
-    # Keep the checked-in deployment record aligned as well. The live runner
-    # rewrites these fields from the activation manifest after deployment.
+    # Keep the old deployment record historical. A new live deployment writes
+    # this profile from the activation manifest; the spend CLI rejects older
+    # profiles instead of using their addresses with the new circuit.
     cfg = json.loads((ROOT / "devnet" / "deploy_config.json").read_text())
-    assert cfg["profile"] == POOL_PROFILE
+    assert cfg["profile"] in ("recipient-pull-v1", POOL_PROFILE)
     assert cfg["recentRootGas"] == RECENT_ROOT_FRAME_GAS
     assert cfg["verifyGas"] == VERIFY_FRAME_GAS
     assert cfg["verifyStateGas"] == VERIFY_FRAME_STATE_GAS
-    assert cfg["settleGas"] == SETTLE_FRAME_GAS
+    assert cfg["settleGas"] == (SETTLE_FRAME_GAS if cfg["profile"] == POOL_PROFILE else 1_400_000)
     assert cfg["settleStateGas"] == SETTLE_FRAME_STATE_GAS
     assert cfg["claimGas"] == CLAIM_FRAME_GAS
     assert cfg["claimStateGas"] == CLAIM_FRAME_STATE_GAS
@@ -155,6 +176,8 @@ def main():
             "observed_execution_one_tuple": MAX_OBSERVED_RECENT_ROOT_FRAME_GAS,
         },
         "settlement": {
+            "native_max_observed_execution": NATIVE_MAX_OBSERVED_SETTLEMENT_GAS,
+            "tree_hash_and_write_maxima": tree_shapes,
             "execution_cap": SETTLE_FRAME_GAS,
             "state_cap": SETTLE_FRAME_STATE_GAS,
             "conservative_execution_bound": CONSERVATIVE_SETTLEMENT_EXECUTION_BOUND,
@@ -164,7 +187,6 @@ def main():
         },
         "declared_total": {
             "frozen_single_dimension": declared_single,
-            "pre_pr_12279_two_dimensions": pre_pr_12279_split,
             "spec_two_dimensions": declared_split,
             "pr_12279_state_gas_increase": CONSERVATIVE_VERIFY_STATE_BOUND,
             "extra_over_frozen": extra_over_frozen,

@@ -100,7 +100,7 @@ POOL=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "${PRICE[@]}" --g
 }
 
 SOURCE0=$(cast call "$POOL" 'sourceId(uint64)(bytes32)' 0 --rpc-url "$RPC")
-DOMAIN=$(cast call "$POOL" 'domain()(bytes32)' --rpc-url "$RPC")
+DOMAIN=$(cast call "$POOL" 'domain(uint64)(bytes32)' 0 --rpc-url "$RPC")
 echo "    pool=$POOL source0=$SOURCE0 domain=$DOMAIN"
 
 echo "==> RejectEther recipient (starts rejecting so a seed claim can leave credit)"

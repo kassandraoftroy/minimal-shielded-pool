@@ -45,7 +45,7 @@ def _rpc(url, method, params):
     return r["result"]
 
 
-def seeded_tree(url, pool):
+def seeded_tree(url, pool, expected_epoch):
     """Rebuild the pool's current Merkle tree from its LeafAppended events, in
     index order, and assert the reconstructed root equals the pool's on-chain
     currentRoot. A real wallet does this; without it the fixture's membership
@@ -56,6 +56,8 @@ def seeded_tree(url, pool):
                                       "fromBlock": "0x0", "toBlock": "latest"}])
     epoch_word = _rpc(url, "eth_call", [{"to": pool, "data": "0x76671808"}, "latest"])
     epoch = int(epoch_word, 16)
+    if epoch != expected_epoch:
+        raise SystemExit(f"--epoch={expected_epoch} does not match the live tree epoch {epoch}")
     leaves = {}
     for l in logs:
         if int(l["topics"][2], 16) != epoch:
@@ -107,7 +109,7 @@ def main():
         raise SystemExit("--rpc= and --pool= must be given together (seed the live tree)")
     WORK.mkdir(exist_ok=True)
     w.set_seed(20260712)
-    domain = w.domain_scalar(chain_id, pool_address)
+    domain = w.domain_scalar(chain_id, pool_address, epoch)
 
     # Two deposits, into one tree. Root R is fixed after both inserts. Against a
     # live pool, seed the tree from its existing leaves first so the fixture's
@@ -120,7 +122,7 @@ def main():
     cm_a = w.commitment(sk_a, rho_a, v)
     cm_c = w.commitment(sk_c, rho_c, v)
 
-    tree = seeded_tree(rpc_url, pool) if rpc_url else w.Tree()
+    tree = seeded_tree(rpc_url, pool, epoch) if rpc_url else w.Tree()
     idx_a = tree.append(cm_a)
     idx_c = tree.append(cm_c)
     root_R = tree.root()

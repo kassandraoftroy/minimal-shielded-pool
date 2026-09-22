@@ -3,11 +3,11 @@
   "ceremony": {
     "phase2_contributions": 1,
     "independent_verification": null,
-    "label": "single-party disposable testbed"
+    "label": "public-entropy test-only occurrence prototype"
   },
   "profile": {
-    "wire_profile": "recipient-pull-v1",
-    "pool_profile": "recipient-pull-v1",
+    "wire_profile": "position-notes-v1",
+    "pool_profile": "position-notes-v1",
     "eip_8250_merge": "f3079a09e8c606afcb0e5e1a309ff228b88dc067",
     "eip_8272_carrier": "canonical-verifier-frame",
     "eip_8272_pin": "824cbc0b0e",
@@ -18,29 +18,29 @@
     "signature_gas": 2800,
     "required_verify_budget": 352800,
     "pre_pr_12279_max_observed_verify_execution_gas": 294401,
-    "post_pr_12279_max_observed_verify_execution_gas": 254712,
+    "post_pr_12279_max_observed_verify_execution_gas": 255011,
     "max_observed_recent_root_frame_gas": 5579,
     "eip_8141_public_mempool_budget": 100000,
     "hegota_profile_2_budget": 1048576,
-    "settle_frame_gas": 1400000,
+    "settle_frame_gas": 2000000,
     "settle_frame_state_gas": 550000,
     "claim_frame_gas": 100000,
     "claim_frame_state_gas": 183600,
-    "conservative_settle_bound": 1231926,
+    "conservative_settle_bound": 1856368,
     "conservative_settle_state_bound": 489600
   },
   "artifacts": {
-    "build/spend.r1cs": "8b07031680a6d86e9261f64291e398ad9031abb09dcdf3f1d7ca86735847d15e",
-    "build/spend_final.zkey": "3a2bcbedd704e05cdbabfcc027c3f27a647380da84c83e506c3fdec5913b877a",
-    "build/spend_js/spend.wasm": "4935c11e3be2309af2b6bf6fa9821eaaaf41ffd481716483d0f28b73ed363a2b",
-    "circuits/spend.circom": "3d100fbf47852a50ee7fc5bf4fa2e8735e072f2c96533b9cb028168ccb6a78ea",
-    "contracts/src/Groth16Verifier.sol": "9667eab74b1efdd0a6cc5c419e6dbe4b7cb78ad29b5ed8ecf3b3d40886b286ac",
-    "contracts/src/ShieldedPoolLogic.sol": "7c05d484877146222ff1250e625ecb1d819c7aa409091a1affc41443f762cd5b",
-    "devnet/ShieldedPoolDispatcher.yul": "7b2a97c19eb7348dd6dfb60f1bef6eba7f255af647b7adf47a4bd7a20e550be9",
-    "devnet/build/shielded_pool_dispatcher_init.hex": "1ed5d7838aab55ea2e86a93079dba752546b6ffb82ca1f2404cc27357b3d07f2",
+    "build/spend.r1cs": "f8cb1f6851f16dc686213c9ac2bddf7f7a7dcfdbde00078cb70bc0752fef8281",
+    "build/spend_final.zkey": "d4cb9a76efc8b3be225a6b19bd8006f18f0401279c8047e19bed7ff38c0bad8d",
+    "build/spend_js/spend.wasm": "6ce7ba4e7889ab4796ee33d029ea2a78edbd4213f4e987a8a5c3a9c634ba6a28",
+    "circuits/spend.circom": "2206f25b7ede7ca6f54f6b125e3deea28717eb5e88e8e8fc6b9c9f97647078dd",
+    "contracts/src/Groth16Verifier.sol": "faebe71ddd7d6d7b7729b19139d7f6868300f2004dbedf23bdcd67017f7a86f8",
+    "contracts/src/ShieldedPoolLogic.sol": "fa9d7b1fc5fdca83c3a78cdd81cd3856dbfc9e18d20095054c22c6c248ad753b",
+    "devnet/ShieldedPoolDispatcher.yul": "4901594a293e89d12b970c9e54ddb561db087d38e779fac88e88f2b0cccc827e",
+    "devnet/build/shielded_pool_dispatcher_init.hex": "132f7403cb0219334937118f2a2f01e029a45e4ae58e8ab737f661d343514ce6",
     "devnet/frametx.py": "7b59186456e52c9956028cc1ccded61a7ae08684382c8b4f478416cd31bb17c7",
-    "devnet/gas_profile.py": "49f5a3964ea7f64b103d3e3f71940dba41799628caca90c6997e8683cfed7043",
-    "devnet/pool_frametx.py": "93428ddcfb2d5c7f6bad2c7fc33f421d966c5aa0c5e113a9a9a993c3a975469f",
-    "tooling/check_gas_profile.py": "190b9a52db02ffd64f932ee1c23c7c4a08a67c2f7c7f5a8c269393b1a9ed00ec"
+    "devnet/gas_profile.py": "dd7ff3b2600b330fa433adb2189557bf38baa5785cf3626c0a1e950bc49ad0f9",
+    "devnet/pool_frametx.py": "817378979a62bd710d26e0e20750361c94cfb8ad05abb00d9cf1fdcd3f74597f",
+    "tooling/check_gas_profile.py": "a4554db010f235ee58767b558de0243097f5ab2b670ea32e63518f69a83183f0"
   }
 }

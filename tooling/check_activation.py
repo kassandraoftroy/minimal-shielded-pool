@@ -25,11 +25,9 @@ from gas_profile import (  # noqa: E402
 # fail-closed, and adding a dialect means adding its budgets here deliberately rather
 # than letting a manifest name its own.
 #
-# The current spec splits the single budget in two. The execution figure drops because the state
-# growth moved out of it, not because settlement got cheaper, so a spec-profile manifest that
-# still declared 2_000_000 would be over-provisioning the execution dimension by the
-# whole state cost while declaring nothing for state — the shape that makes a frame
-# halt for want of state gas with execution gas to spare.
+# Split profiles declare execution and state independently. Historical budgets
+# stay frozen here; position-notes-v1 raises execution after native long-carry
+# testing exposed a failure at the old 1.4M limit.
 PROFILES = {
     "ethrex-v23-hegota-testnet": {
         "verify_frame_gas": 320_000,
@@ -59,7 +57,7 @@ PROFILES = {
         "verify_frame_gas": VERIFY_FRAME_GAS,
         "signature_gas": 2_800,
         "verify_frame_state_gas": VERIFY_FRAME_STATE_GAS,
-        "settle_frame_gas": SETTLE_FRAME_GAS,
+        "settle_frame_gas": 1_400_000,
         "settle_frame_state_gas": SETTLE_FRAME_STATE_GAS,
     },
     # Withdrawals add an exact DEFAULT claim frame. A 3-frame eip8272-canonical-frame
@@ -69,12 +67,19 @@ PROFILES = {
         "verify_frame_gas": VERIFY_FRAME_GAS,
         "signature_gas": 2_800,
         "verify_frame_state_gas": VERIFY_FRAME_STATE_GAS,
-        "settle_frame_gas": SETTLE_FRAME_GAS,
+        "settle_frame_gas": 1_400_000,
         "settle_frame_state_gas": SETTLE_FRAME_STATE_GAS,
-        "pool_profile": POOL_PROFILE,
+        "pool_profile": "recipient-pull-v1",
         "claim_frame_gas": CLAIM_FRAME_GAS,
         "claim_frame_state_gas": CLAIM_FRAME_STATE_GAS,
     },
+}
+
+# Same frame grammar, new circuit/nullifier identities and storage layout.
+# This profile requires a fresh pool deployment.
+PROFILES["position-notes-v1"] = {
+    **PROFILES["recipient-pull-v1"], "pool_profile": POOL_PROFILE,
+    "settle_frame_gas": SETTLE_FRAME_GAS,
 }
 
 
@@ -120,7 +125,8 @@ def main():
     if required > profile["hegota_profile_2_budget"]:
         raise SystemExit("transaction exceeds the configured Hegota Profile 2 budget")
     if profile["wire_profile"] in (
-            "eip8250-state-gas-pre-8272-frame", "eip8272-canonical-frame", "recipient-pull-v1"):
+            "eip8250-state-gas-pre-8272-frame", "eip8272-canonical-frame", "recipient-pull-v1",
+            "position-notes-v1"):
         historical_verify_gas = profile["pre_pr_12279_max_observed_verify_execution_gas"]
         # The field is required even before a measurement exists. Its explicit
         # null records the remaining live-test gap; omitting it must not look

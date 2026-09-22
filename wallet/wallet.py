@@ -17,11 +17,13 @@ from pathlib import Path
 from eth_hash.auto import keccak
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "reference"))
-from poseidon_bn254 import P, p2, tagged, TAG_PK, TAG_LEAF, TAG_NULL  # noqa: E402
+from poseidon_bn254 import P, p2, tagged, TAG_PK, TAG_LEAF  # noqa: E402
 
 DEPTH = 20
 MAX_VALUE = 1 << 128
-DOMAIN_TAG = bytes.fromhex("40752e102d2a749c61d42a71e297edd3b493de639003b9480a700d589d98065b")
+# keccak256(b"minimal-shielded-pool:occurrence-domain:v1"). Fresh deployment only.
+DOMAIN_TAG = bytes.fromhex("a9d03fa1cd97bcf3294dc8e3bb024f555393c98967b356967fa502abab366ed3")
+TAG_OCCURRENCE_NULL = 4
 SINK_INNERS = (1, 2)
 SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
@@ -56,20 +58,23 @@ def commitment(spend_key, rho, value):
     return tagged(TAG_LEAF, inner(spend_key, rho), value)
 
 
-def domain_scalar(chain_id, pool_address):
-    """Stable nullifier domain for one immutable pool across all tree epochs."""
+def domain_scalar(chain_id, pool_address, epoch=0):
+    """Domain for an authenticated input epoch, not the current output epoch."""
     if isinstance(pool_address, str):
         pool_address = bytes.fromhex(pool_address.removeprefix("0x"))
     elif isinstance(pool_address, int):
         pool_address = pool_address.to_bytes(20, "big")
-    if len(pool_address) != 20 or not 0 <= chain_id < 1 << 256:
-        raise ValueError("domain inputs must be uint256 chain_id and address20 pool")
+    if len(pool_address) != 20 or not 0 <= chain_id < 1 << 256 or not 0 <= epoch < 1 << 64:
+        raise ValueError("domain inputs must be uint256 chain_id, address20 pool and uint64 epoch")
     padded_pool = bytes(12) + pool_address
-    return int.from_bytes(keccak(DOMAIN_TAG + chain_id.to_bytes(32, "big") + padded_pool), "big") % P
+    return int.from_bytes(keccak(DOMAIN_TAG + chain_id.to_bytes(32, "big") + padded_pool
+                                 + epoch.to_bytes(32, "big")), "big") % P
 
 
-def nullifier(domain, spend_key, cm):
-    return tagged(TAG_NULL, p2(domain, spend_key), cm)
+def nullifier(domain, spend_key, cm, index):
+    if not 0 <= index < 1 << DEPTH:
+        raise ValueError("note index outside the depth-20 tree")
+    return tagged(TAG_OCCURRENCE_NULL, p2(domain, spend_key), p2(cm, index))
 
 
 def new_note():
@@ -219,7 +224,8 @@ def build_witness(
 
 def input_nullifiers(domain, inputs):
     """The two nullifiers a witness's inputs expose, in order."""
-    return [nullifier(domain, i["sk"], commitment(i["sk"], i["rho"], i["value"])) for i in inputs]
+    return [nullifier(domain, i["sk"], commitment(i["sk"], i["rho"], i["value"]),
+                      i["idx"] if i["idx"] is not None else 0) for i in inputs]
 
 
 def output_commitments(outputs):

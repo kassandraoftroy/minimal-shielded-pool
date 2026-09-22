@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -63,6 +65,8 @@ jobs:
             devnet/pool_frametx.py \
             devnet/test_pool_envelope_binding.py \
             devnet/test_recent_root_window.py \
+            devnet/test_occurrence_profile.py wallet/test_occurrence.py \
+            wallet/test_wallet_occurrence.py \
             wallet/gen_nonce_race.py wallet/gen_smoke.py wallet/wallet.py \
             reference/gen_poseidon_sol.py reference/poseidon_bn254.py \
             tooling/check_activation.py tooling/check_gas_profile.py \
@@ -70,13 +74,30 @@ jobs:
           python devnet/frametx.py
           python devnet/test_pool_envelope_binding.py
           python devnet/test_recent_root_window.py
+          python devnet/test_occurrence_profile.py
+          python wallet/test_occurrence.py
+          python wallet/test_wallet_occurrence.py
           python tooling/check_gas_profile.py
           python tooling/check_activation.py activation_manifest.testbed.json --allow-testbed
-          python tooling/check_activation.py \
-            devnet/vectors/2026-09-01-hegota-final-profile/activation_manifest.testbed.json \
-            --allow-testbed
           python wallet/wallet.py
           python reference/poseidon_bn254.py
+
+      - name: Preserve historical deployment evidence
+        run: |
+          # The archived manifest names artifacts from before this circuit change.
+          # Check that snapshot, without rewriting it to describe the new pool.
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          base = '6c5c77b171e08ad0987a06c44d0488ab385f36dd'
+          archive = 'devnet/vectors/2026-09-01-hegota-final-profile'
+          subprocess.run(['git', 'diff', '--exit-code', base, '--', archive], check=True)
+          manifest = json.loads(Path(archive, 'activation_manifest.testbed.json').read_text())
+          for path, expected in manifest['artifacts'].items():
+              data = subprocess.check_output(['git', 'show', f'{base}:{path}'])
+              assert hashlib.sha256(data).hexdigest() == expected, path
+          print('Historical artifact hashes match their original snapshot')
+          PY
 
       - name: Test contracts
         working-directory: contracts
@@ -87,3 +108,34 @@ jobs:
           # Foundry's cache. Force recompilation so test discovery cannot
           # silently collapse to a partial suite.
           forge test --force -vv
+
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.93.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: lambdaclass/ethrex
+          ref: 247e2dd2c4d4c526dcc64ac1c025bd2319e7a10e
+          path: .native-ethrex
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - name: Install native test dependencies
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal
+          npm ci --prefix tooling
+          python -m pip install --requirement requirements.txt
+      - name: Test duplicate notes, reorgs, settlement gas and client policy
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/msp-occurrence-target
+        run: python devnet/native_occurrence/run.py --ethrex-source "$GITHUB_WORKSPACE/.native-ethrex"

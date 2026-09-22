@@ -58,7 +58,7 @@ object "ShieldedPoolDispatcher" {
             }
             function maxValue() -> v { v := 0x100000000000000000000000000000000 }
             function domainTag() -> v {
-                v := 0x40752e102d2a749c61d42a71e297edd3b493de639003b9480a700d589d98065b
+                v := 0xa9d03fa1cd97bcf3294dc8e3bb024f555393c98967b356967fa502abab366ed3
             }
 
             // EIP-8272: keccak256(address20(pool) || bytes32(epoch)).
@@ -68,12 +68,13 @@ object "ShieldedPoolDispatcher" {
                 id := keccak256(0, 0x34)
             }
 
-            // Stable nullifier domain: chain + immutable pool, never epoch.
-            function domainVal() -> d {
+            // Bind the same input epoch used by the authenticated root source.
+            function domainVal(epoch) -> d {
                 mstore(0, domainTag())
                 mstore(0x20, chainid())
                 mstore(0x40, address())
-                d := mod(keccak256(0, 0x60), scalarField())
+                mstore(0x60, epoch)
+                d := mod(keccak256(0, 0x80), scalarField())
             }
 
             function impl() -> a {
@@ -107,7 +108,7 @@ object "ShieldedPoolDispatcher" {
                 if or(iszero(authorizer), shr(160, authorizer)) { fail(errAuthorizer()) }
                 if shr(160, recipient) { fail(errCanonical()) }
                 if iszero(eq(iszero(pub), iszero(recipient))) { fail(errShape()) }
-                if iszero(eq(dom, domainVal())) { fail(errDomain()) }
+                if iszero(eq(dom, domainVal(epoch))) { fail(errDomain()) }
 
                 let p := scalarField()
                 if iszero(lt(root, p)) { fail(errCanonical()) }
@@ -199,9 +200,9 @@ object "ShieldedPoolDispatcher" {
 
                 // Frame 2: the single settlement call, with fork-profile gas.
                 if iszero(eq(frameParam(2, 0x00), address())) { fail(errShape()) }
-                if iszero(eq(frameParam(2, 0x01), 1400000)) { fail(errShape()) }
+                if iszero(eq(frameParam(2, 0x01), 2000000)) { fail(errShape()) }
                 // Settlement's state growth is bounded at five new slots
-                // (finalized root, epoch counter, two leaf markers, one withdrawal
+                // (finalized/current root, epoch counter, two subtrees, withdrawal
                 // credit); 550000 covers 5 * 64 * 1530 with margin. Pinned for the
                 // same reason as the execution budget: unpinned, it is the pool's
                 // money.

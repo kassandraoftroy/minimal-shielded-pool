@@ -10,7 +10,7 @@ contract ShieldedPoolLogic {
     uint256 internal constant P = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     uint256 internal constant MAX_VALUE = 1 << 128;
     bytes32 public constant EMPTY_ROOT = 0x2134e76ac5d21aab186c2be1dd8f84ee880a1e46eaf712f9d371b6df22191f3e;
-    bytes32 public constant DOMAIN_TAG = 0x40752e102d2a749c61d42a71e297edd3b493de639003b9480a700d589d98065b;
+    bytes32 public constant DOMAIN_TAG = 0xa9d03fa1cd97bcf3294dc8e3bb024f555393c98967b356967fa502abab366ed3;
     bytes32 public constant SINK_0 = 0x23f1b896ada6ee5dac80945b11329e7ab64412c2be9f5c87cfa3261cc1d8216f;
     bytes32 public constant SINK_1 = 0x2fd476622c67c880b3049a76c7337192362834c9d6dfb55c5060bb96c98932bb;
     address public constant RECENT_ROOT_PREDEPLOY = address(0x8272);
@@ -19,14 +19,13 @@ contract ShieldedPoolLogic {
     address public immutable POSEIDON_T3;
     address public immutable POSEIDON_T4;
 
-    // The first 25 slots deliberately preserve the original dispatcher layout.
+    // Fresh-deployment layout shared with the immutable dispatcher.
     bytes32[DEPTH + 1] public filledSubtrees; // slots 0..20
     uint32 public nextIndex; // slot 21
     bytes32 public currentRoot; // slot 22
-    mapping(bytes32 => bool) public isLeaf; // slot 23, global across epochs
-    mapping(address => uint256) public withdrawalCredit; // slot 24
-    uint64 public currentEpoch; // slot 25
-    mapping(uint64 => bytes32) public finalRoot; // slot 26
+    mapping(address => uint256) public withdrawalCredit; // slot 23
+    uint64 public currentEpoch; // slot 24
+    mapping(uint64 => bytes32) public finalRoot; // slot 25
 
     struct Spend {
         bytes32 root;
@@ -53,7 +52,6 @@ contract ShieldedPoolLogic {
     error DirectImplementationCall();
     error ZeroValueShield();
     error ValueTooLarge();
-    error DuplicateCommitment();
     error ReservedSink();
     error NotCanonical();
     error NotPoolSender();
@@ -85,12 +83,15 @@ contract ShieldedPoolLogic {
         return keccak256(abi.encodePacked(address(this), bytes32(uint256(epoch))));
     }
 
-    function domain() public view returns (bytes32) {
-        return domainFor(block.chainid, address(this));
+    function domain(uint64 epoch) public view returns (bytes32) {
+        return domainFor(block.chainid, address(this), epoch);
     }
 
-    function domainFor(uint256 chainId, address pool) public pure returns (bytes32) {
-        return bytes32(uint256(keccak256(abi.encodePacked(DOMAIN_TAG, chainId, bytes32(uint256(uint160(pool)))))) % P);
+    function domainFor(uint256 chainId, address pool, uint64 epoch) public pure returns (bytes32) {
+        return bytes32(
+            uint256(keccak256(abi.encodePacked(DOMAIN_TAG, chainId, bytes32(uint256(uint160(pool))), uint256(epoch))))
+                % P
+        );
     }
 
     function shield(bytes32 inner) external payable onlyDelegate returns (uint32 index) {
@@ -100,7 +101,6 @@ contract ShieldedPoolLogic {
 
         bytes32 cm = bytes32(_hash3(2, uint256(inner), msg.value));
         if (cm == SINK_0 || cm == SINK_1) revert ReservedSink();
-        if (isLeaf[cm]) revert DuplicateCommitment();
 
         _ensureCapacity(1);
         index = _insert(cm);
@@ -115,7 +115,7 @@ contract ShieldedPoolLogic {
         if (msg.sender != address(this)) revert NotPoolSender();
         if (s.nf1 == bytes32(0) || s.nf2 == bytes32(0)) revert ZeroNullifier();
         if (s.authorizer == address(0)) revert InvalidAuthorizer();
-        if (s.domain != domain()) revert InvalidDomain();
+        if (s.domain != domain(s.epoch)) revert InvalidDomain();
         if (s.epoch > currentEpoch) revert InvalidEpoch();
         if (
             uint256(s.root) >= P || uint256(s.domain) >= P || uint256(s.nf1) >= P || uint256(s.nf2) >= P
@@ -126,9 +126,9 @@ contract ShieldedPoolLogic {
         if (s.outCm1 == s.outCm2 || s.outCm1 == SINK_1 || s.outCm2 == SINK_0) {
             revert InvalidSettlementShape();
         }
-        if ((s.outCm1 != SINK_0 && isLeaf[s.outCm1]) || (s.outCm2 != SINK_1 && isLeaf[s.outCm2])) {
-            revert DuplicateCommitment();
-        }
+        // Every non-sink output receives a distinct funded tree occurrence.
+        // The circuit binds nullifiers to input epoch and position, so an
+        // identical commitment already in the tree is safe to append again.
 
         emit NoteSpent(s.nf1);
         emit NoteSpent(s.nf2);
@@ -221,7 +221,6 @@ contract ShieldedPoolLogic {
     function _insert(bytes32 cm) internal returns (uint32 index) {
         index = nextIndex;
         nextIndex = index + 1;
-        isLeaf[cm] = true;
         bytes32 node = cm;
         uint32 idx = index;
         uint32 l;

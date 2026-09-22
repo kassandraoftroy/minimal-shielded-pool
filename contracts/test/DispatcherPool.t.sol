@@ -20,9 +20,8 @@ interface IPool {
     function currentEpoch() external view returns (uint64);
     function nextIndex() external view returns (uint32);
     function finalRoot(uint64) external view returns (bytes32);
-    function isLeaf(bytes32) external view returns (bool);
     function withdrawalCredit(address) external view returns (uint256);
-    function domain() external view returns (bytes32);
+    function domain(uint64 epoch) external view returns (bytes32);
     function sourceId(uint64) external view returns (bytes32);
 }
 
@@ -135,7 +134,7 @@ contract DispatcherPoolTest {
             root: bytes32(uint256(7)),
             rootSlot: 9,
             epoch: 0,
-            domain: pool.domain(),
+            domain: pool.domain(0),
             nf1: bytes32(uint256(11)),
             nf2: bytes32(uint256(12)),
             outCm1: out1,
@@ -162,6 +161,19 @@ contract DispatcherPoolTest {
         require(index == 0 && pool.nextIndex() == 1, "shield did not settle");
     }
 
+    function test_repeated_deposit_creates_two_separately_funded_occurrences() public {
+        bytes32 inner = bytes32(uint256(33));
+        uint256 beforeBalance = address(pool).balance;
+        uint32 first = pool.shield{value: 1 ether}(inner);
+        bytes32 firstRoot = pool.currentRoot();
+        uint32 second = pool.shield{value: 1 ether}(inner);
+        require(first == 0 && second == 1 && pool.nextIndex() == 2, "deposit occurrence missing");
+        require(pool.currentRoot() != firstRoot, "duplicate was not appended");
+        require(address(pool).balance == beforeBalance + 2 ether, "both deposits must be funded");
+        vm.expectRevert(ShieldedPoolLogic.ZeroValueShield.selector);
+        pool.shield(inner);
+    }
+
     function test_actual_poseidon_library_runtimes_work_via_staticcall() public {
         address t3 = address(0xA003);
         address t4 = address(0xA004);
@@ -175,20 +187,14 @@ contract DispatcherPoolTest {
 
         vm.store(address(actualProxy), bytes32(uint256(21)), bytes32(uint256((1 << 20) - 1)));
         ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(301)), bytes32(uint256(302)), 0, address(0));
-        s.domain = actualPool.domain();
+        s.domain = actualPool.domain(0);
         actualProxy.settleAsSelf(s);
         require(actualPool.currentEpoch() == 1 && actualPool.nextIndex() == 2, "actual rollover failed");
     }
 
-    /// Measures ONE gas dimension, so this covers the frozen chain-8141 profile's single
-    /// 2,000,000 budget and nothing else. Under the updated EIP-8141 the same settlement is
-    /// declared as two budgets — execution and state — and forge cannot model that split:
-    /// the SSTOREs it counts here are charged to the state pool on chain, not to execution.
-    /// The updated profile's caps are checked by tooling/check_gas_profile.py, whose two
-    /// bounds sum to exactly the single bound this profile uses (1,231,926 + 489,600 =
-    /// 1,721,526), so they are a repartition of this same measured worst case rather than a
-    /// separate estimate.
-    function test_two_million_gas_covers_heaviest_reachable_settlement_shape() public {
+    /// Forge measures one gas dimension. The native suite separately checks
+    /// the execution and state limits enforced by the dispatcher.
+    function test_two_million_gas_covers_rollover_settlement() public {
         address t3 = address(0xA013);
         address t4 = address(0xA014);
         vm.etch(t3, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
@@ -207,7 +213,7 @@ contract DispatcherPoolTest {
         vm.store(address(actualProxy), bytes32(uint256(21)), bytes32(uint256((1 << 20) - 1)));
         vm.store(address(actualProxy), bytes32(uint256(22)), oldRoot);
         ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(401)), bytes32(uint256(402)), 7, address(0xB0B));
-        s.domain = actualPool.domain();
+        s.domain = actualPool.domain(0);
 
         uint256 beforeGas = gasleft();
         (bool ok,) = address(actualProxy).call{gas: SETTLE_FRAME_GAS}(abi.encodeCall(LogicProxy.settleAsSelf, (s)));
@@ -221,11 +227,38 @@ contract DispatcherPoolTest {
         require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "credit missing");
     }
 
+    function test_two_million_gas_covers_longest_non_rollover_hash_path() public {
+        address t3 = address(0xA023);
+        address t4 = address(0xA024);
+        vm.etch(t3, vm.getDeployedCode("PoseidonT3.sol:PoseidonT3"));
+        vm.etch(t4, vm.getDeployedCode("PoseidonT4.sol:PoseidonT4"));
+        ShieldedPoolLogic actualLogic = new ShieldedPoolLogic(t3, t4);
+        LogicProxy actualProxy = new LogicProxy(address(actualLogic));
+        IPool actualPool = IPool(address(actualProxy));
+
+        // First insertion carries through 19 occupied subtree levels. The
+        // second leaves a partial tree, requiring all 20 root hashes too.
+        for (uint256 slot; slot < 19; slot++) {
+            vm.store(address(actualProxy), bytes32(slot), bytes32(slot + 1));
+        }
+        vm.store(address(actualProxy), bytes32(uint256(21)), bytes32(uint256((1 << 19) - 1)));
+        ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(501)), bytes32(uint256(502)), 7, address(0xB0B));
+        s.domain = actualPool.domain(0);
+
+        uint256 beforeGas = gasleft();
+        (bool ok,) = address(actualProxy).call{gas: SETTLE_FRAME_GAS}(abi.encodeCall(LogicProxy.settleAsSelf, (s)));
+        emit SettlementGasMeasured(beforeGas - gasleft());
+        require(ok, "long carry exhausted settlement cap");
+        require(actualPool.currentEpoch() == 0, "long carry unexpectedly rolled");
+        require(actualPool.nextIndex() == (1 << 19) + 1, "long carry outputs missing");
+        require(actualPool.withdrawalCredit(address(0xB0B)) == 7, "long carry credit missing");
+    }
+
     function test_settlement_does_not_call_recent_root_predeploy() public {
         vm.etch(ROOT_PREDEPLOY, type(RevertingRecentRoot).runtimeCode);
         ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(101)), bytes32(uint256(102)), 0, address(0));
         _settle(s);
-        require(pool.isLeaf(s.outCm1) && pool.isLeaf(s.outCm2), "outputs missing");
+        require(pool.nextIndex() == 2 && pool.currentRoot() != EMPTY_ROOT, "outputs missing");
     }
 
     function test_two_output_spend_rolls_before_cap_boundary() public {
@@ -248,19 +281,25 @@ contract DispatcherPoolTest {
         require(pool.withdrawalCredit(address(0xB0B)) == 5 ether, "credit missing");
     }
 
-    function test_invalid_sink_positions_and_duplicate_outputs_reject() public {
+    function test_invalid_sink_positions_and_same_spend_duplicate_outputs_reject() public {
         ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(55)), bytes32(uint256(55)), 0, address(0));
         vm.expectRevert(ShieldedPoolLogic.InvalidSettlementShape.selector);
         proxy.settleAsSelf(s);
         s = _spend(SINK_1, SINK_0, 0, address(0));
         vm.expectRevert(ShieldedPoolLogic.InvalidSettlementShape.selector);
         proxy.settleAsSelf(s);
+    }
 
-        s = _spend(bytes32(uint256(57)), bytes32(uint256(58)), 0, address(0));
+    function test_output_matching_an_existing_commitment_is_appended() public {
+        ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(57)), bytes32(uint256(58)), 0, address(0));
         _settle(s);
+        bytes32 firstRoot = pool.currentRoot();
         s = _spend(bytes32(uint256(57)), bytes32(uint256(59)), 0, address(0));
-        vm.expectRevert(ShieldedPoolLogic.DuplicateCommitment.selector);
-        proxy.settleAsSelf(s);
+        s.nf1 = bytes32(uint256(13));
+        s.nf2 = bytes32(uint256(14));
+        _settle(s);
+        require(pool.nextIndex() == 4, "duplicate output was skipped");
+        require(pool.currentRoot() != firstRoot, "tree did not change");
     }
 
     function test_publication_is_separate_authenticated_and_retryable() public {
@@ -290,9 +329,33 @@ contract DispatcherPoolTest {
         require(address(rejecter).balance == before + 2 ether, "payout missing");
     }
 
-    function test_epoch_sources_are_distinct_but_nullifier_domain_is_stable() public view {
+    function test_input_epoch_domains_are_distinct() public view {
         require(pool.sourceId(0) != pool.sourceId(1), "epoch sources collide");
-        bytes32 beforeDomain = pool.domain();
-        require(beforeDomain != bytes32(0), "zero domain");
+        require(pool.domain(0) != pool.domain(1), "epoch domains collide");
+        require(pool.domain(0) != bytes32(0), "zero domain");
+    }
+
+    function test_old_epoch_spend_uses_input_domain_after_rollover() public {
+        vm.store(address(proxy), bytes32(uint256(21)), bytes32(uint256(1 << 20)));
+        pool.shield{value: 1}(bytes32(uint256(33)));
+        require(pool.currentEpoch() == 1, "epoch did not roll");
+        ShieldedPoolLogic.Spend memory s = _spend(bytes32(uint256(81)), bytes32(uint256(82)), 0, address(0));
+        _settle(s);
+        require(pool.nextIndex() == 3, "old epoch spend did not append to current tree");
+
+        s.domain = pool.domain(1);
+        vm.expectRevert(ShieldedPoolLogic.InvalidDomain.selector);
+        proxy.settleAsSelf(s);
+    }
+
+    function test_current_epoch_spend_requires_current_epoch_domain() public {
+        vm.store(address(proxy), bytes32(uint256(24)), bytes32(uint256(1)));
+        ShieldedPoolLogic.Spend memory s = _spend(SINK_0, SINK_1, 1, address(0xB0B));
+        s.epoch = 1;
+        vm.expectRevert(ShieldedPoolLogic.InvalidDomain.selector);
+        proxy.settleAsSelf(s);
+        s.domain = pool.domain(1);
+        _settle(s);
+        require(pool.withdrawalCredit(address(0xB0B)) == 1, "credit missing");
     }
 }

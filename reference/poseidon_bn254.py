@@ -82,12 +82,12 @@ def _check():
     assert inner == c["inner"], "inner mismatch"
     cm = tagged(TAG_LEAF, inner, c["value"])
     assert cm == c["cm"], "cm mismatch"
-    # v2 nullifiers are domain-separated (mirrors circuits/spend.circom):
-    # nf = Poseidon(TAG_NULL, Poseidon2(domain, spend_key), cm)
+    # The domain includes the input epoch, and the constrained Merkle index
+    # distinguishes independently funded occurrences of the same commitment.
     domain_key = p2(c["domain"], c["spend_key"])
-    nf = tagged(TAG_NULL, domain_key, cm)
+    nf = tagged(4, domain_key, p2(cm, c["index"]))
     assert nf == c["nf"], "nf mismatch"
-    nf2 = tagged(TAG_NULL, domain_key, tagged(TAG_LEAF, inner, 0))
+    nf2 = tagged(4, domain_key, p2(tagged(TAG_LEAF, inner, 0), c["index"]))
     assert nf2 == c["nf2"], "dummy nf mismatch"
     out_cm1 = tagged(TAG_LEAF, c["out_inner1"], c["out_value1"])
     out_cm2 = tagged(TAG_LEAF, c["out_inner2"], c["out_value2"])

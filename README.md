@@ -5,12 +5,13 @@ EIP-8141 Frame Transactions, EIP-8250 keyed nonces, and EIP-8272 recent roots.
 It has no ERC-20 path, admin, governance, external paymaster, or MATCHA-specific
 mempool mechanism.
 
-This repository is research software. The committed Groth16 proving key is a
-single-party testbed key and must never protect real value.
+This repository is research software. The committed Groth16 proving key uses
+public test-only phase-2 entropy and must never protect real value.
 
 ## Design
 
-A note is `Poseidon(TAG_LEAF, Poseidon(spend_key, rho), value)`. A spend proves
+A note commitment is `Poseidon3(2, Poseidon2(owner_pk, rho), value)`, where
+`owner_pk = Poseidon3(1, spend_key, 0)`. A spend proves
 a 2-input/2-output join-split with ten public signals:
 
 `[nf1, nf2, outCm1, outCm2, root, domain, publicAmount, fee, recipient, authorizer]`
@@ -19,6 +20,21 @@ The circuit enforces membership for positive inputs, value conservation,
 128-bit amounts, at least one positive input, distinct nullifiers, distinct
 outputs, two position-specific zero-value sinks, a nonzero `uint160`
 authorizer, and the transfer/withdrawal recipient shape.
+
+Each funded insertion is a separate note, identified by its tree epoch and
+leaf index. The index comes from the same path bits that prove membership:
+
+```text
+D  = Keccak(domain_tag || chain_id || padded_pool_address || input_epoch) mod Fr
+nf = Poseidon3(4, Poseidon2(D, spend_key), Poseidon2(commitment, leaf_index))
+```
+
+The domain fields are each 32 bytes; `domain_tag` is
+`Keccak("minimal-shielded-pool:occurrence-domain:v1")`. The dispatcher binds
+the input epoch to the authenticated recent-root source. Identical funded
+commitments at different positions have different nullifiers, so neither
+deposit nor settlement needs a commitment-uniqueness registry. Wallets track
+each occurrence separately and rebuild positions after a reorg.
 
 Private transfers use three frames. Public withdrawals add a fourth:
 
@@ -84,7 +100,13 @@ nested them, so the correction confirms the shape rather than changing it. Every
 spend gives its proof frame `195,840` state gas to create its two nullifier
 keys, and leads with a `30,000`-gas recent-root verifier frame that counts
 toward the public mempool's verify budget. The gas schedule is recorded in the
-testbed activation manifest, wire profile `recipient-pull-v1`.
+testbed activation manifest, pool profile `position-notes-v1`.
+
+This profile requires a fresh deployment. Its nullifier formula, verifier
+and storage layout differ from `recipient-pull-v1`; replacing the verifier
+under an old pool could make spent notes spendable again. The recorded
+`devnet/deploy_config.json` remains historical and the spend CLI rejects it
+until a new deployment writes the new profile and addresses.
 
 This profile targets the chain 8141 testnet's next re-genesis, which moves the
 node to those revisions; the chain launched on September 3 runs the older
@@ -106,6 +128,8 @@ python3 -m pip install --requirement requirements.txt
 
 python3 devnet/frametx.py
 python3 devnet/test_pool_envelope_binding.py
+python3 devnet/test_occurrence_profile.py
+python3 wallet/test_occurrence.py
 python3 tooling/check_gas_profile.py
 python3 tooling/check_activation.py activation_manifest.testbed.json --allow-testbed
 python3 wallet/wallet.py
@@ -121,8 +145,14 @@ and WASM byte for byte with the committed artifacts. Run `tooling/setup.sh`
 only when intentionally replacing the disposable proving setup. It randomizes
 the phase-2 contribution and changes the proving key, verification key, and
 verifier, so the activation manifest and proof fixtures must then be rebuilt.
-`tooling/check_activation.py` checks every pinned artifact and fails closed on
-the testbed manifest unless `--allow-testbed` is explicit.
+`tooling/check_activation.py` checks every pinned active artifact and fails
+closed on the testbed manifest unless `--allow-testbed` is explicit. CI checks
+the archived manifest against its original Git snapshot, not the new circuit.
+
+Native duplicate, replay, reorg and gas tests are documented in
+[`devnet/native_occurrence/README.md`](devnet/native_occurrence/README.md).
+They execute the pinned ethrex VM locally; they do not establish network,
+cross-client or full FOCIL integration.
 
 The direct proving-tool versions are also pinned to the committed artifact
 provenance. In particular, circom2 0.2.23 does not reproduce the committed
@@ -133,8 +163,8 @@ reviewed artifact set rather than routine dependency maintenance.
 
 | Dependency | Status |
 |---|---|
-| Ethrex v23 Hegotá FrameTx ABI | Implemented, and the whole lifecycle mined on a devnet at these pins |
-| Current EIP-8141 wire format | Implemented by the active encoder and tested on a private three-node devnet |
+| Ethrex v23 Hegotá FrameTx ABI | Earlier profiles mined the lifecycle on a devnet; this circuit change uses local native VM tests |
+| Current EIP-8141 wire format | Frame grammar unchanged; the new circuit and storage layout require a fresh deployment |
 | EIP-8141 published 100k public mempool budget | Not compatible: the two validation frames and the signature need 352.8k execution gas |
 | EIP-8250 keyed nonces | The pool follows PR 12279: two fresh keys cost `195,840` state gas in the proof frame |
 | EIP-8272 recent roots | The pool follows `824cbc0b0e`: the root travels in the canonical verifier frame that leads the transaction |
@@ -158,7 +188,7 @@ candidate, not a finalized per-transaction consensus limit.
   Poseidon runtime hashes.
 - Re-run the full signature-mutation, capacity, reorg, gas-boundary, and
   cross-client vectors on the exact activation fork.
-- Re-run the fixed 2M SENDER-cap proof on every supported gas schedule.
+- Re-run the 2M execution / 550k state settlement bounds on every supported gas schedule.
   Deactivate the profile before an unsupported repricing fork.
 - Obtain an independent contract and circuit audit.
 

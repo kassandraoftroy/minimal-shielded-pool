@@ -421,7 +421,7 @@ def main():
         if cfg.get("profile") != POOL_PROFILE:
             raise SystemExit(f"spends require profile={POOL_PROFILE}; use a fresh deployment of this profile")
         if cfg.get("claimGas") != CLAIM_FRAME_GAS or cfg.get("claimStateGas") != CLAIM_FRAME_STATE_GAS:
-            raise SystemExit("spends require claimGas/claimStateGas matching recipient-pull-v1")
+            raise SystemExit(f"spends require claimGas/claimStateGas matching {POOL_PROFILE}")
     pk = keys.PrivateKey(bytes.fromhex(priv.removeprefix("0x")))
     dry = "--dry-run" in sys.argv
     sender_override = None
